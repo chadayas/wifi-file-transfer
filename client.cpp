@@ -19,11 +19,11 @@ int main()
             sizeof(serverAddress));
     
     char buffer[4096] = {0};
-    std::ifstream file("mj.png", std::ios::binary);
+    std::ifstream file("mj.jpeg", std::ios::binary);
     file.read(buffer, 4096); 
     send(clientSocket, buffer, 4096, 0);
-    
+ 
     close(clientSocket);
-
+    std::cout <<"file bytes amount: "  << file.gcount() << std::endl; 
     return 0;
 }
