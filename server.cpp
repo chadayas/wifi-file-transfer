@@ -4,13 +4,37 @@
 #include<netinet/in.h>
 #include<unistd.h>
 #include<fstream>
+#include<cctype>
+#include<iomanip>
 
-int parse_header(const char* buffer){
-	buffer.find("Content-Length:")
+int parse_cl(char buffer[]){
+	const char* cl = "Content-Length: ";	
+	char* str_ptr = std::strstr(buffer, cl);
+	std::size_t idx = str_ptr - buffer;
+	idx += 16;
+	std::size_t i = 0;	
+	std::string cl_str;	
+	while (!std::isspace(buffer[idx + i])){
+		char char_nums = buffer[idx + i];	
+		cl_str.push_back(char_nums);	
+		++i;	
+	}
+	int cl_int = std::stoi(cl_str);
+	
+	return cl_int;
 }
 
+char* trim_header(char buffer[]){
+	const char* ct = "Content-Type: image/jpeg";	
+	char* str_ptr = std::strstr(buffer, ct);
+	std::size_t idx = str_ptr - buffer;
+	idx += 28;
+		
+	return buffer[idx]; 
 
-// Latptop ip 192.168.1.170
+}	
+
+
 int main()
 {
 	int server_socket = socket(AF_INET,SOCK_STREAM, 0);
@@ -29,7 +53,7 @@ int main()
 		std::cout << buffer << std::endl;
 		std::string response ="HTTP/1.1 200 OK\r\n";	
 		std::string body ="<html><body>"
-		"<form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">"
+	"<form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">"
 		"<input type=\"file\" name=\"file\" accept=\"image/*\">"
 		"<button type=\"submit\">Upload a file</button>"
 		"</form></body></html>";
@@ -40,18 +64,30 @@ int main()
 		send(client_socket, response.data(), response.size(), 0);
 	}	
 		
-	
-	int pic_bytes = recv(client_socket, buffer, sizeof(buffer), 0);	
-		
-	std::ofstream file("tiger.jpeg", std::ios::out | std::ios::binary);
-	file.write(buffer, sizeof(buffer));
-	file.close();
-		
+	int pic_bytes = recv(client_socket, buffer, sizeof(buffer), 0);
+
 	std::cout <<  std::endl <<"---This is the next buffer ----"
 		<<std::endl << buffer  << std::endl;	
-	std::cout << "Photo received\n total bytes: " << pic_bytes << std::endl;	
-	close(server_socket);
+	
+	std::ofstream file("tiger.jpeg", std::ios::out | std::ios::binary);
+	
+	char* jpeg_sig_idx = trim_header(buffer)	
+	int header_size = jpeg_sig_idx - buffer;
+	int jpeg_sig_length = pic_bytes - header_size;
+	
+	file.write(jpeg_sig_idx, jpeg_sig_length);
+	int content_length = parse_cl(buffer);
+	int total_recieved = pic_bytes;	
+	
+	/*while (total_recieved < content_length){
+		int bytes = recv(client_socket, buffer, sizeof(buffer), 0);
+		file.write(buffer, bytes);
+		total_recieved += bytes;
+	}*/
 
+	file.close();
+
+	close(server_socket);
 
 	return 0;
 }
