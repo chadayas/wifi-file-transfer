@@ -30,7 +30,7 @@ char* trim_header(char buffer[]){
 	std::size_t idx = str_ptr - buffer;
 	idx += 28;
 		
-	return buffer[idx]; 
+	return buffer + idx; 
 
 }	
 
@@ -71,7 +71,7 @@ int main()
 	
 	std::ofstream file("tiger.jpeg", std::ios::out | std::ios::binary);
 	
-	char* jpeg_sig_idx = trim_header(buffer)	
+	char* jpeg_sig_idx = trim_header(buffer);	
 	int header_size = jpeg_sig_idx - buffer;
 	int jpeg_sig_length = pic_bytes - header_size;
 	
@@ -79,11 +79,12 @@ int main()
 	int content_length = parse_cl(buffer);
 	int total_recieved = pic_bytes;	
 	
-	/*while (total_recieved < content_length){
+	while (total_recieved < content_length){
 		int bytes = recv(client_socket, buffer, sizeof(buffer), 0);
 		file.write(buffer, bytes);
 		total_recieved += bytes;
-	}*/
+		std::cout << total_recieved << "/" << content_length << std::endl;	
+	}
 
 	file.close();
 
