@@ -7,6 +7,14 @@
 #include<cctype>
 #include<iomanip>
 
+enum class State {
+	MULTIPART_HEADER,
+	FILE_DATA,
+	DONE
+};
+
+
+
 int parse_cl(char buffer[]){
 	const char* cl = "Content-Length: ";	
 	char* str_ptr = std::strstr(buffer, cl);
@@ -24,16 +32,9 @@ int parse_cl(char buffer[]){
 	return cl_int;
 }
 
-char* trim_header(char buffer[]){
-	const char* ct = "Content-Type: image/jpeg";	
-	char* str_ptr = std::strstr(buffer, ct);
-	std::size_t idx = str_ptr - buffer;
-	idx += 28;
-		
-	return buffer + idx; 
 
-}	
-
+	
+//debug fn
 void  debug_buffer(char buffer[]){
 	const char* ct = "Content-Type: image/jpeg";	
 	char* str_ptr = std::strstr(buffer, ct);
@@ -48,13 +49,16 @@ void  debug_buffer(char buffer[]){
 	std::cout << std::endl;	
 
 }
-void find_boundary(char buffer[]){
+
+std::string find_boundary(char buffer[]){
 	std::string wbkit = "------WebKitFormBoundary";	
 	std::string buf_str(buffer);
 	auto idx = buf_str.find(wbkit);
 	std::string boundary;
-		
-	std::cout << std::endl;
+	for (auto i = 0; buffer[idx + i] != '\r'; ++i){
+		boundary.push_back(buffer[idx+ i]);
+	}	
+	return boundary;
 }
 
 
@@ -96,21 +100,42 @@ int main()
 		<<std::endl << buf  << std::endl;	
 	
 
-	std::ofstream f1("pic1", std::ios::out | std::ios::binary);
+	std::ofstream f1("pic1.jpeg", std::ios::out | std::ios::binary);
 	
-	char* jpeg_sig_idx = trim_header(buffer);	
-	int header_size = jpeg_sig_idx - buffer;
-	int jpeg_sig_length = pic_bytes - header_size;
-	
-	f1.write(jpeg_sig_idx, jpeg_sig_length);
+
 	int content_length = parse_cl(buffer);
 	int total_recieved = pic_bytes;	
-	find_boundary(buffer);
-
-	while (total_recieved < content_length){
+	std::string wbkit_bound = find_boundary(buffer);
+	State state;
+	std::string stash;
+	while (state != State::DONE){
 		int bytes = recv(client_socket, buffer, sizeof(buffer), 0);
-		f1.write(buffer, bytes);
-		total_recieved += bytes;
+		stash.append(buffer, bytes);	
+		bool run;
+	    while (run){
+		    switch (state){
+			case State::MULTIPART_HEADER:{
+		 	std::string c_type = "Content-Type: image/jpeg";
+			auto idx = stash.find(c_type);
+			stash.erase(0, idx + c_type.size() )		
+			state = State::FILE_DATA;
+			break;	
+		 }
+		    	case State::FILE_DATA:{
+			std::string wbkit = find_boundary(buffer);
+			auto pos = stash.find(wbkit);
+			if (pos != std::string::npos){
+			   f1.write(stash.data(), pos);
+		           stash.erase(0, pos + wbkit.size());
+
+			    }		
+			}
+
+		    
+			case State::DONE:
+		    }
+	    }
+
 	}
 
 	f1.close();
