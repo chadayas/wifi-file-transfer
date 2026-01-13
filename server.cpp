@@ -8,6 +8,7 @@
 #include<iomanip>
 #include<iterator>
 #include<sstream>
+#include<vector> 
 
 enum class State {
 	MULTIPART_HEADER,
@@ -116,17 +117,31 @@ void  debug_buffer2(char buffer[]){
 	std::cout << std::endl;
 	}
 
-std::string find_boundary(char buffer[]){
+template <typename S>
+std::string find_boundary(S t){
 	std::string wbkit = "------WebKitFormBoundary";	
-	std::string buf_str(buffer);
+	std::string buf_str(t);
 	auto idx = buf_str.find(wbkit);
 	std::string boundary;
-	for (auto i = 0; buffer[idx + i] != '\r'; ++i){
-		boundary.push_back(buffer[idx+ i]);
+	for (auto i = 0; t[idx + i] != '\r'; ++i){
+		boundary.push_back(t[idx+ i]);
 	}	
 	return boundary;
 }
-
+template <typename T>
+std::string get_file_ext(T b){
+	std::string ret;	
+	std::string fn = "filename=";
+	std::string str_buffer(b);
+	auto pos = str_buffer.find(fn);
+	auto new_pos = str_buffer.find('.',pos);	
+	auto i = 0;
+	for (i = 0; str_buffer[new_pos + i] != '"'; i++){
+		auto g = str_buffer[new_pos + i];
+		ret.push_back(g);
+		}	
+	return ret;
+	}
 
 
 int main()
@@ -163,17 +178,24 @@ int main()
 	std::string stash;
 	int pic_bytes = recv(client_socket, buffer, sizeof(buffer), 0);
 	stash.append(buffer, pic_bytes);	
+	
 	std::string buf(buffer);
+	std::vector<std::string> file_exts;
+
 	std::cout <<  std::endl <<"---This is the next buffer ----"
 		<<std::endl << buf  << std::endl;	
-
+	
+	std::string fe = get_file_ext(buffer);	
+	std::cout << "File name: " << fe << "\n";
 	
 	int content_length = parse_cl(buffer);
 	int total_recieved = pic_bytes;	
 	int file_count = 0;
+	int idx_ext = 0;	
 	std::ofstream current_file;
 	std::string wbkit_bound = find_boundary(buffer);
 	State state = State::MULTIPART_HEADER;
+	
 	while (state != State::DONE){
 		int bytes = recv(client_socket, buffer, sizeof(buffer), 0);
 		stash.append(buffer, bytes);	
@@ -185,12 +207,14 @@ int main()
 				std::string ctrl_char = "\r\n\r\n";	
 				auto idx = stash.find(c_type);
 				auto pos = stash.find(ctrl_char, idx);		
+				file_exts.push_back(get_file_ext(stash));
+				
 				stash.erase(0, pos + 4);		
 				file_count++;	
-				std::cout <<"[State::M_H] We are on file " << file_count << "\n";	
+				std::cout << std::string(30, '-') << "\n";
+				std::cout <<"[State::M_H] We are on file " << file_count << "\n";
 				current_file.open("pic" + std::to_string(file_count) 
-				+ ".jpeg", std::ios::out | std::ios::binary);
-				
+				+ file_exts[idx_ext], std::ios::out | std::ios::binary);
 				state = State::FILE_DATA;
 				run = true;	
 				break;	
@@ -200,7 +224,7 @@ int main()
 				if (pos != std::string::npos){
 				   std::cout << " [State::FILE_DATA] We are on file " 
 					   << file_count << "\n";	
-				
+				   
 				   current_file.write(stash.data(), pos);
 		           	   stash.erase(0, pos + wbkit_bound.size());
 				  	 
@@ -208,8 +232,9 @@ int main()
 			           if (stash.substr(0, 2) == "--"){
 					   current_file.close(); 
 					   state = State::DONE;
-				   } else{ 
+				   } else{
 					   current_file.close();
+					   idx_ext++; 
 					   state = State::MULTIPART_HEADER; 
 				   }
 				} else {
@@ -232,7 +257,6 @@ int main()
 	    	}
 	    }
 
-	
 	close(server_socket);
 
 	return 0;
