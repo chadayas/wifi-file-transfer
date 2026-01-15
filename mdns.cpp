@@ -6,12 +6,10 @@
 
 int main(){
 	int socket_test = socket(AF_INET, SOCK_DGRAM, 0 );
-	sockaddr_in domain_sockets;
-	domain_sockets.sin_family = AF_INET;
-	domain_sockets.sin_port = htons(5555);
-	domain_sockets.sin_addr = inet_addr("224.1.1.1");
+	sockaddr_in group_sock;
+	group_sock.sin_family = AF_INET;
+	group_sock.sin_port = htons(5555);
+	group_sock.sin_addr = inet_addr("225.1.1.1");
 	
-	int test = bind(socket_test, domain_sockets.sin_addr
-			, sizeof(domain_sockets.sin_addr));
-	
+	std::cout << group_sock->sin_addr << std::endl;	
 }
