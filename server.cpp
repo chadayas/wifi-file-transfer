@@ -10,6 +10,7 @@
 #include<sstream>
 #include<vector> 
 
+
 enum class State {
 	MULTIPART_HEADER,
 	FILE_DATA,
@@ -160,7 +161,7 @@ int main()
 	recv(client_socket, buffer, sizeof(buffer), 0);
 	if (strncmp(buffer, "GET", 3) == 0){
 		std::cout << buffer << std::endl;
-		std::string response ="HTTP/1.1 200 OK\r\n";	
+		std::string response = "HTTP/1.1 200 OK\r\n";	
 		std::string body ="<html>"
 			"<h1>Welcome to the Wifi File Transfer!</h1><body>"
 	"<form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">"
@@ -190,8 +191,7 @@ int main()
 	
 	int content_length = parse_cl(buffer);
 	int total_recieved = pic_bytes;	
-	int file_count = 0;
-	int idx_ext = 0;	
+	int file_count{}, idx_ext{}, start_post{};
 	std::ofstream current_file;
 	std::string wbkit_bound = find_boundary(buffer);
 	State state = State::MULTIPART_HEADER;
@@ -253,9 +253,20 @@ int main()
 		   		break; 
 		    }
 	    	if (state == State::DONE)
-			break;
-	    	}
+	    		break;	
+	   	 }
 	    }
+	if (start_post == 1){
+		std::string response = "HTTP/1.1 200 OK\r\n";
+		std::string body = "<html>"
+			"<h1>Upload was successfull</h1>"
+			"</html>";
+ 		response += "Content-Type: text/html\r\n";
+		response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+		response += "\r\n";
+		response += body;
+		send(client_socket, response.data(), response.size(), 0);	
+	}
 
 	close(server_socket);
 
