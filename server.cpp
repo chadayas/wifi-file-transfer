@@ -230,7 +230,8 @@ int main()
 				  	 
 				   run = true;	
 			           if (stash.substr(0, 2) == "--"){
-					   current_file.close(); 
+					   current_file.close();  
+					   start_post += 1; 
 					   state = State::DONE;
 				   } else{
 					   current_file.close();
@@ -258,10 +259,11 @@ int main()
 	    }
 	if (start_post == 1){
 		std::string response = "HTTP/1.1 200 OK\r\n";
-		std::string body = "<html>"
-			"<h1>Upload was successfull</h1>"
-			"</html>";
- 		response += "Content-Type: text/html\r\n";
+		std::string bd1 = "<html>"
+			"<h1>Successfully uploaded " + std::to_string(file_count);
+		std::string bd2= " files!</h1>""</html>";
+ 		std::string body = bd1+bd2; 
+		response += "Content-Type: text/html\r\n";
 		response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
 		response += "\r\n";
 		response += body;
