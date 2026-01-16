@@ -7,12 +7,15 @@ client : client.cpp
 
 mdns : mdns.cpp
 	g++ -o m mdns.cpp
+c_mdns: tests/c_mdns.cpp
+	g++ -o d tests/c_mdns.cpp
+
 run all:
-	./s &
+	./d & 
 	sleep 0.5
-	./c
+	./m
 clean:
-	rm -f m s c
+	rm -f m s c d
 
 then:
 	make run
