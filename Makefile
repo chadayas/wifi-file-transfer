@@ -11,9 +11,9 @@ c_mdns: tests/c_mdns.cpp
 	g++ -o d tests/c_mdns.cpp
 
 run all:
-	./d & 
-	sleep 0.5
-	./m
+	./m & 
+	sleep 1.0
+	./d
 clean:
 	rm -f m s c d
 

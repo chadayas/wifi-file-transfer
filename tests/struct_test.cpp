@@ -1,9 +1,12 @@
 #include<iostream>
 #include <cstdint>
+#include<iomanip>
 using namespace std;
 
 #define DOLLARS uint32_t
 #define LETTERS string 
+
+
 
 struct Worker{
 	DOLLARS salary;
@@ -12,7 +15,9 @@ struct Worker{
 
 
 int main(){
-	Worker emp;
-	auto it = (struct Worker*)&emp;
-	cout << it << endl;
+	string j = "Where is my";
+	char* k = j.data();
+	cout << std::hex << k[0] << endl; 
+	
+
 }
