@@ -3,32 +3,47 @@
 #include<string>
 #include<iostream>
 #include<sys/time.h>
+#include<vector>
 
-int make_query(char *packet){
-	unsigned char packet[512];
-	packet[0] = 0x13; 	
-	packet[1] = 0x00; // ID 
+// we pass "_filetransfer._tcp.local" to name parse in order to get length
+void encode_name(std::vector<unsigned char> &p, const std::string name){
+	auto start = 0;
 	
-	packet[2] = 0x01; 
-	packet[3] = 0x00; // Flags	
-	
-	packet[4] = 0x00;
-	packet[5] = 0x01; // QD
-	
-	packet[6] = 0x00;
-	packet[7] = 0x00; // AN
-	
-	packet[8] = 0x00;
-	packet[9] = 0x00; // NS
-	
-	packet[10] = 0x00; 
-	packet[11] = 0x00; //AR
-	std::string question = "Where_Photo_Transfer?";
-	unsigned char str_data = question.data();
-
 }
 
+auto make_query(){
+	packet.push_back(0x13); 	
+	packet.push_back(0x00); // ID 
+	
+	packet.push_back(0x00); 
+	packet.push_back(0x00);; // Flags	
+	
+	packet.push_back(0x00);
+	packet.push_back(0x01); // QD
+	
+	
+	packet.push_back(0x00);
+	packet.push_back(0x00); // AN
+	
+	
+	packet.push_back(0x00); 
+	packet.push_back(0x00); // NS
+	
+	packet.push_back(0x00); 
+	packet.push_back(0x00); //AR
+	
+	std::string question = "Where_Photo_Transfer?";
+	for (const auto &x : question)
+		packet.push_back(x);	
+		
+	return packet;
+}
 
+template <typename T>
+void print(T a){
+	for (const auto& x : a)
+		std::cout << x<< " ";
+}
 
 int main(){
 	
@@ -59,7 +74,7 @@ int main(){
 	
 	tv.tv_sec = 1;
 	tv.tv_usec = 0;
-	char buffer[1024] = {0};
+	std::vector<char> buffer(1024);
 
 	setsockopt(socket_test, IPPROTO_IP, IP_ADD_MEMBERSHIP, 
 			(char *)&group, sizeof(group));
@@ -68,20 +83,22 @@ int main(){
 	
 	setsockopt(socket_test, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	
-	int bytes = recvfrom(socket_test, buffer, sizeof(buffer), 0,
+	int bytes = recvfrom(socket_test, buffer.data(), buffer.size(), 0,
 		(struct sockaddr*)&group_sock, &group_len);
 	if (bytes < 0)
 		std::cout << "[ERROR:SERVER] NO DATA RECIEVED" << std::endl;
 	else
 		std::cout << "[WORKING:SERVER] GOOD RECIEVE" << std::endl;
 
-	int send_fn = sendto(socket_test, buffer, sizeof(buffer),
+	int send_fn = sendto(socket_test, buffer.data(), buffer.size(),
 		0, (struct sockaddr*)&group_sock, sizeof(group_sock));
 	if (send_fn < 0){
 		std::cout << "[ERROR] SENDING ERROR" << std::endl;
 	} else{
-		std::cout << "[WORKING:SERVER] MESSAGE SENT.....(buffer): " << 
-			buffer << std::endl;
+		std::cout << "[WORKING:SERVER] MESSAGE SENT..... " << 
+			 std::endl;
+		std::cout << "Buffer: ";	
+		print(buffer);
 	}
 	
 	return 0;

@@ -4,14 +4,16 @@
 #include<string>
 #include<netinet/in.h>
 #include<netinet/ip.h>
+#include<vector>
 
 int main(){
 	sockaddr_in group_sock;	
 	struct ip_mreq group;	
 	in_addr multicast_if;
 	sockaddr_in bind_addr;
-
-	char buffer[1024] = "GReat"; 
+	std::string msg = "WE ARE BACK";
+	std::vector<char> buffer(1024);
+	
 	int c_sock = socket(AF_INET, SOCK_DGRAM, 0);
 	if (c_sock < 0)
 		std::cout << "[ERROR] SOCKET IS BAD";
@@ -38,7 +40,7 @@ int main(){
 	
 	setsockopt(c_sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,(char*)&group, sizeof(group));
 
-	int sent = sendto(c_sock, buffer, sizeof(buffer),0,
+	int sent = sendto(c_sock, buffer.data(), buffer.size(),0,
 			(struct sockaddr*)&group_sock, sizeof(group_sock));	
 		
 	if (sent < 0)

@@ -17,7 +17,7 @@ struct Worker{
 int main(){
 	string j = "Where is my";
 	char* k = j.data();
-	cout << std::hex << k[0] << endl; 
+	cout << std::hex << static_cast<int>(k[3]) << endl; 
 	
 
 }
