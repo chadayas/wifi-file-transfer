@@ -8,41 +8,46 @@
 // we pass "_filetransfer._tcp.local" to name parse in order to get length
 void encode_name(std::vector<unsigned char> &p, const std::string name){
 	auto start = 0;
-	
-}
+	size_t pos;	
+	while ((pos = name.find('.', start)) != std::string::npos){
+		auto len = pos - start;
+		p.push_back(static_cast<unsigned char>(len));
+		for(size_t i = start; i < pos; ++i ){
+			p.push_back(name[i]);
+		}
+		start = pos + 1;	
+	}	
+		
+	size_t len = name.size() - start;	
+	p.push_back(static_cast<unsigned char>(len));
+	for (size_t i = start; i < name.size(); i++){
+		p.push_back(name[i]);
+	 }
+	p.push_back(0x00);
+	std::cout << std::endl;	
+}	
+
 
 auto make_query(){
-	packet.push_back(0x13); 	
-	packet.push_back(0x00); // ID 
+	std::vector<unsigned char> packet;	
+	packet.push_back(0x00); packet.push_back(0x00); // ID 
+	packet.push_back(0x00); packet.push_back(0x00);; // Flags	
+	packet.push_back(0x00); packet.push_back(0x01); // QD
+	packet.push_back(0x00); packet.push_back(0x00); // AN
+	packet.push_back(0x00); packet.push_back(0x00); // NS
+	packet.push_back(0x00); packet.push_back(0x00); //AR
 	
-	packet.push_back(0x00); 
-	packet.push_back(0x00);; // Flags	
-	
-	packet.push_back(0x00);
-	packet.push_back(0x01); // QD
-	
-	
-	packet.push_back(0x00);
-	packet.push_back(0x00); // AN
-	
-	
-	packet.push_back(0x00); 
-	packet.push_back(0x00); // NS
-	
-	packet.push_back(0x00); 
-	packet.push_back(0x00); //AR
-	
-	std::string question = "Where_Photo_Transfer?";
-	for (const auto &x : question)
-		packet.push_back(x);	
-		
+	encode_name(packet, "_filetransfer._tcp.local");
+	packet.push_back(0x01);
+	packet.push_back(0x01);
 	return packet;
 }
 
 template <typename T>
 void print(T a){
 	for (const auto& x : a)
-		std::cout << x<< " ";
+	std::cout << std::hex << static_cast<int>(x) << " " << std::dec;
+	std::cout << std::endl;
 }
 
 int main(){
@@ -75,30 +80,22 @@ int main(){
 	tv.tv_sec = 1;
 	tv.tv_usec = 0;
 	std::vector<char> buffer(1024);
-
+	
 	setsockopt(socket_test, IPPROTO_IP, IP_ADD_MEMBERSHIP, 
 			(char *)&group, sizeof(group));
 	
 	bind(socket_test, (struct sockaddr*)&bind_addr, sizeof(bind_addr));
 	
-	setsockopt(socket_test, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	
-	int bytes = recvfrom(socket_test, buffer.data(), buffer.size(), 0,
-		(struct sockaddr*)&group_sock, &group_len);
-	if (bytes < 0)
-		std::cout << "[ERROR:SERVER] NO DATA RECIEVED" << std::endl;
-	else
-		std::cout << "[WORKING:SERVER] GOOD RECIEVE" << std::endl;
-
-	int send_fn = sendto(socket_test, buffer.data(), buffer.size(),
+	//setsockopt(socket_test, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	auto packet = make_query();	
+	print(packet);	
+	int send_fn = sendto(socket_test, packet.data(), packet.size(),
 		0, (struct sockaddr*)&group_sock, sizeof(group_sock));
 	if (send_fn < 0){
 		std::cout << "[ERROR] SENDING ERROR" << std::endl;
 	} else{
 		std::cout << "[WORKING:SERVER] MESSAGE SENT..... " << 
 			 std::endl;
-		std::cout << "Buffer: ";	
-		print(buffer);
 	}
 	
 	return 0;
