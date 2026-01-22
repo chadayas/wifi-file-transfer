@@ -4,13 +4,61 @@
 #include<iostream>
 #include<sys/time.h>
 #include<vector>
+#include<map>
 
+#define SERVICE std::string("_filetransfer._tcp.local")
+#define DNS std::string("_services._dns-sd._udp.local")
 
-void parse_query(std::vector<unsigned char> &t){
-	int MAX = 50;	
-	for (size_t i = 0; i < MAX; ++i)
-		std::cout << std::showbase << std::hex << static_cast<int>(t[i]) << " " <<  std::dec;
-	std::cout << "\n";
+std::string decode_name(const std::vector<unsigned char>& pkt, size_t& pos) {
+	std::string name;
+	while (pkt[pos] != 0) {
+		if ((pkt[pos] & 0xC0) == 0xC0) {
+			size_t offset = ((pkt[pos] & 0x3F) << 8) | pkt[pos + 1];
+			pos += 2;
+			name += decode_name(pkt, offset);
+			return name;
+		}
+		int len = pkt[pos++];
+		for (int i = 0; i < len; i++) {
+			name += pkt[pos++];
+		}
+		name += '.';
+	}
+	pos++;
+	if (!name.empty()) name.pop_back();
+	return name;
+}
+
+void parse_response(std::vector<unsigned char>& pkt, int bytes,
+                    std::map<std::string,std::string>& devices) {
+	if (bytes < 12) return;
+
+	int ancount = (pkt[6] << 8) | pkt[7];
+	size_t pos = 12;
+
+	int qdcount = (pkt[4] << 8) | pkt[5];
+	for (int i = 0; i < qdcount; i++) {
+		while (pkt[pos] != 0) pos++;
+		pos += 5;
+	}
+
+	for (int i = 0; i < ancount; i++) {
+		std::string name = decode_name(pkt, pos);
+		int type = (pkt[pos] << 8) | pkt[pos + 1];
+		pos += 8;
+		int rdlen = (pkt[pos] << 8) | pkt[pos + 1];
+		pos += 2;
+
+		if (type == 0x01 && rdlen == 4) {
+			std::string ip = std::to_string(pkt[pos]) + "." +
+			                std::to_string(pkt[pos+1]) + "." +
+			                std::to_string(pkt[pos+2]) + "." +
+			                std::to_string(pkt[pos+3]);
+			devices[ip] = name;
+			std::cout << "Found: " << name << " -> " << ip << std::endl;
+		}
+		pos += rdlen;
+	}
 }
 
 void encode_name(std::vector<unsigned char> &p, const std::string &name){
@@ -29,7 +77,7 @@ void encode_name(std::vector<unsigned char> &p, const std::string &name){
 	for (size_t i = start; i < name.size(); ++i){
 		p.push_back(name[i]);
 	}
-	p.push_back(0x00);
+	p.push_back(0x00); // null term	
 }
 
 auto make_call(){
@@ -41,15 +89,17 @@ auto make_call(){
 	packet.push_back(0x00);packet.push_back(0x00); // NSCOUNT 
 	packet.push_back(0x00);packet.push_back(0x00); // ARCOUNT
 	
-	encode_name(packet, "MyLaptop._phototransfer._tcp.local"); // name
+	encode_name(packet, "MyLaptop." + SERVICE); // name
 	packet.push_back(0x00);packet.push_back(0x01); // type
-	packet.push_back(0x00);packet.push_back(0x01); // class 
+	packet.push_back(0x80);packet.push_back(0x01); // class 
+	
+	packet.push_back(0x00);packet.push_back(0x00); // TTL 
 	packet.push_back(0x00);packet.push_back(0x64); // TTL
 	packet.push_back(0x00);packet.push_back(0x04); //RDlength
 	
 	packet.push_back(0xc0);packet.push_back(0xa8); // ip
 	packet.push_back(0x01);packet.push_back(0xaa);
-	packet.push_back(0x00); // null term	
+		
 	return packet;
 }
 
@@ -62,9 +112,9 @@ auto make_query(){
 	packet.push_back(0x00); packet.push_back(0x00); // NS
 	packet.push_back(0x00); packet.push_back(0x00); //AR
 	
-	encode_name(packet, "_filetransfer._tcp.local");
-	packet.push_back(0x01);
-	packet.push_back(0x01);
+	encode_name(packet, DNS);
+	packet.push_back(0x00);packet.push_back(0x0c); //type
+	packet.push_back(0x00);packet.push_back(0x01); // class
 	return packet;
 }
 
@@ -102,7 +152,7 @@ int main(){
 	group.imr_multiaddr.s_addr =  inet_addr("224.0.0.251");
 	group.imr_interface.s_addr = INADDR_ANY;
 	
-	tv.tv_sec = 3;
+	tv.tv_sec = 1;
 	tv.tv_usec = 0;
 	std::vector<unsigned char> buffer(1024);
 	
@@ -123,8 +173,9 @@ int main(){
 	socklen_t size = sizeof(group_sock);	
 	socklen_t *size_ptr = &size;	
 	
-	bool running = true;	
-	
+	bool running = true;
+	std::map<std::string,std::string> devices;
+
 	auto call = make_call();
 	auto query = make_query();
 
@@ -136,14 +187,13 @@ int main(){
 			(struct sockaddr*)&group_sock,sizeof(group_sock));
 	std::cout << "[SERVER] Send query result: " << send2 << std::endl;	
 
+	
 	while(running){	
 	int bytes= recvfrom(socket_test, buffer.data(), buffer.size(),
 		0, (struct sockaddr*)&group_sock, size_ptr);
 		if (bytes > 0){
-			std::cout << "[recieve working] : ";
-			print(buffer);
-			std::cout << "\n";	
-		}else if(bytes == -1){
+			parse_response(buffer, bytes, devices);
+		} else if(bytes == -1){
 			std::cout << "." << std::flush;
 			sendto(socket_test, call.data(), call.size(), 0,
 			(struct sockaddr*)&group_sock,sizeof(group_sock));	
