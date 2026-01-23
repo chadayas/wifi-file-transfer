@@ -8,7 +8,6 @@
 
 #define SERVICE std::string("_filetransfer._tcp.local")
 #define DNS std::string("_services._dns-sd._udp.local")
-#define SPOTIFY std::string("_spotify-connect._tcp.local")
 
 std::string decode_name(const std::vector<unsigned char>& pkt, size_t& pos) {
 	std::string name;
@@ -149,12 +148,6 @@ auto make_query(){
 	return packet;
 }
 
-template <typename T>
-void print(T a){
-	for (const auto& x : a)
-	std::cout << x;
-	std::cout << std::endl;
-}
 
 int main(){
 	
