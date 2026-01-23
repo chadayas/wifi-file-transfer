@@ -8,6 +8,7 @@
 
 #define SERVICE std::string("_filetransfer._tcp.local")
 #define DNS std::string("_services._dns-sd._udp.local")
+#define SPOTIFY std::string("_spotify-connect._tcp.local")
 
 std::string decode_name(const std::vector<unsigned char>& pkt, size_t& pos) {
 	std::string name;
@@ -35,7 +36,6 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes,
 
 	int ancount = (pkt[6] << 8) | pkt[7];
 	size_t pos = 12;
-
 	int qdcount = (pkt[4] << 8) | pkt[5];
 	for (int i = 0; i < qdcount; i++) {
 		while (pkt[pos] != 0) pos++;
@@ -48,16 +48,21 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes,
 		pos += 8;
 		int rdlen = (pkt[pos] << 8) | pkt[pos + 1];
 		pos += 2;
+		size_t rdata_start = pos;
 
-		if (type == 0x01 && rdlen == 4) {
+		if (type == 0x01 && rdlen == 4) { // A record
 			std::string ip = std::to_string(pkt[pos]) + "." +
 			                std::to_string(pkt[pos+1]) + "." +
 			                std::to_string(pkt[pos+2]) + "." +
 			                std::to_string(pkt[pos+3]);
 			devices[ip] = name;
-			std::cout << "Found: " << name << " -> " << ip << std::endl;
+			std::cout << "Found A: " << name << " -> " << ip << std::endl;
+		} else if (type == 0x0C) { // PTR record
+			size_t rdata_pos = rdata_start;
+			std::string instance = decode_name(pkt, rdata_pos);
+			std::cout << "Found PTR: " << name << " -> " << instance << std::endl;
 		}
-		pos += rdlen;
+		pos = rdata_start + rdlen;
 	}
 }
 
@@ -80,26 +85,52 @@ void encode_name(std::vector<unsigned char> &p, const std::string &name){
 	p.push_back(0x00); // null term	
 }
 
-auto make_call(){
+auto make_a_record(){
 	std::vector<unsigned char> packet;
 	packet.push_back(0x00);packet.push_back(0x00);//ID
 	packet.push_back(0x84);packet.push_back(0x00); // Flags
 	packet.push_back(0x00);packet.push_back(0x00);// QDCOUNT
 	packet.push_back(0x00);packet.push_back(0x01); // ANCOUNT
-	packet.push_back(0x00);packet.push_back(0x00); // NSCOUNT 
+	packet.push_back(0x00);packet.push_back(0x00); // NSCOUNT
 	packet.push_back(0x00);packet.push_back(0x00); // ARCOUNT
-	
+
 	encode_name(packet, "MyLaptop." + SERVICE); // name
-	packet.push_back(0x00);packet.push_back(0x01); // type
-	packet.push_back(0x80);packet.push_back(0x01); // class 
-	
-	packet.push_back(0x00);packet.push_back(0x00); // TTL 
+	packet.push_back(0x00);packet.push_back(0x01); // type A
+	packet.push_back(0x80);packet.push_back(0x01); // class
+
+	packet.push_back(0x00);packet.push_back(0x00); // TTL
 	packet.push_back(0x00);packet.push_back(0x64); // TTL
-	packet.push_back(0x00);packet.push_back(0x04); //RDlength
-	
-	packet.push_back(0xc0);packet.push_back(0xa8); // ip
-	packet.push_back(0x01);packet.push_back(0xaa);
-		
+	packet.push_back(0x00);packet.push_back(0x04); // RDlength (4 bytes for IP)
+
+	packet.push_back(0xc0);packet.push_back(0xa8); // ip 192.168.
+	packet.push_back(0x01);packet.push_back(0xaa); // 1.170
+
+	return packet;
+}
+
+auto make_ptr_record(){
+	std::vector<unsigned char> packet;
+	packet.push_back(0x00);packet.push_back(0x00);// ID
+	packet.push_back(0x84);packet.push_back(0x00); // Flags (response)
+	packet.push_back(0x00);packet.push_back(0x00);// QDCOUNT
+	packet.push_back(0x00);packet.push_back(0x01); // ANCOUNT
+	packet.push_back(0x00);packet.push_back(0x00); // NSCOUNT
+	packet.push_back(0x00);packet.push_back(0x00); // ARCOUNT
+
+	encode_name(packet, SERVICE); // _filetransfer._tcp.local
+	packet.push_back(0x00);packet.push_back(0x0C); // type PTR
+	packet.push_back(0x80);packet.push_back(0x01); // class
+
+	packet.push_back(0x00);packet.push_back(0x00); // TTL
+	packet.push_back(0x00);packet.push_back(0x64); // TTL
+
+	// RDATA is the instance name
+	std::vector<unsigned char> rdata;
+	encode_name(rdata, "MyLaptop." + SERVICE);
+
+	packet.push_back(0x00);packet.push_back(static_cast<unsigned char>(rdata.size())); // RDlength
+	for (auto b : rdata) packet.push_back(b);
+
 	return packet;
 }
 
@@ -112,7 +143,7 @@ auto make_query(){
 	packet.push_back(0x00); packet.push_back(0x00); // NS
 	packet.push_back(0x00); packet.push_back(0x00); //AR
 	
-	encode_name(packet, DNS);
+	encode_name(packet, SERVICE);
 	packet.push_back(0x00);packet.push_back(0x0c); //type
 	packet.push_back(0x00);packet.push_back(0x01); // class
 	return packet;
@@ -176,16 +207,21 @@ int main(){
 	bool running = true;
 	std::map<std::string,std::string> devices;
 
-	auto call = make_call();
+	auto a_record = make_a_record();
+	auto ptr_record = make_ptr_record();
 	auto query = make_query();
 
-	int send = sendto(socket_test, call.data(), call.size(), 0,
+	int send1 = sendto(socket_test, ptr_record.data(), ptr_record.size(), 0,
 			(struct sockaddr*)&group_sock,sizeof(group_sock));
-	std::cout << "[SERVER] Send announcement result: " << send << std::endl;	
-	
-	int send2 = sendto(socket_test, query.data(), query.size(), 0,
+	std::cout << "[SERVER] Send PTR announcement: " << send1 << std::endl;
+
+	int send2 = sendto(socket_test, a_record.data(), a_record.size(), 0,
 			(struct sockaddr*)&group_sock,sizeof(group_sock));
-	std::cout << "[SERVER] Send query result: " << send2 << std::endl;	
+	std::cout << "[SERVER] Send A announcement: " << send2 << std::endl;
+
+	int send3 = sendto(socket_test, query.data(), query.size(), 0,
+			(struct sockaddr*)&group_sock,sizeof(group_sock));
+	std::cout << "[SERVER] Send query: " << send3 << std::endl;	
 
 	
 	while(running){	
@@ -195,12 +231,12 @@ int main(){
 			parse_response(buffer, bytes, devices);
 		} else if(bytes == -1){
 			std::cout << "." << std::flush;
-			sendto(socket_test, call.data(), call.size(), 0,
-			(struct sockaddr*)&group_sock,sizeof(group_sock));	
-			
+			sendto(socket_test, ptr_record.data(), ptr_record.size(), 0,
+			(struct sockaddr*)&group_sock,sizeof(group_sock));
+			sendto(socket_test, a_record.data(), a_record.size(), 0,
+			(struct sockaddr*)&group_sock,sizeof(group_sock));
 			sendto(socket_test, query.data(), query.size(), 0,
 			(struct sockaddr*)&group_sock,sizeof(group_sock));
-	
 		} 
 			
 	}
