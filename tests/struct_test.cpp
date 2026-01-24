@@ -1,6 +1,8 @@
 #include<iostream>
 #include <cstdint>
 #include<iomanip>
+#include<vector>
+#include<algorithm>
 using namespace std;
 
 #define DOLLARS uint32_t
@@ -15,9 +17,6 @@ struct Worker{
 
 
 int main(){
-	string j = "Where is my";
-	char* k = j.data();
-	cout << std::hex << static_cast<int>(k[3]) << endl; 
-	
-
+	string buffer(8, '\0');
+	cout << buffer << endl;
 }

@@ -1,3 +1,4 @@
+#include "server.hpp"
 #include<cstring>
 #include<iostream>
 #include<sys/socket.h>
@@ -11,15 +12,9 @@
 #include<vector> 
 
 
-enum class State {
-	MULTIPART_HEADER,
-	FILE_DATA,
-	DONE
-};
 
 
-
-int parse_cl(char buffer[]){
+int parse_context_length(char buffer[]){
 	const char* cl = "Content-Length: ";	
 	char* str_ptr = std::strstr(buffer, cl);
 	std::size_t idx = str_ptr - buffer;
@@ -118,32 +113,100 @@ void  debug_buffer2(char buffer[]){
 	std::cout << std::endl;
 	}
 
-template <typename S>
-std::string find_boundary(S t){
+std::string find_boundary(const std::string &buffer){
 	std::string wbkit = "------WebKitFormBoundary";	
-	std::string buf_str(t);
-	auto idx = buf_str.find(wbkit);
+	auto idx = buffer.find(wbkit);
 	std::string boundary;
-	for (auto i = 0; t[idx + i] != '\r'; ++i){
+	for (auto i = 0; buffer[idx + i] != '\r'; ++i){
 		boundary.push_back(t[idx+ i]);
 	}	
 	return boundary;
 }
-template <typename T>
-std::string get_file_ext(T b){
+
+std::string get_file_extensions(const std::string &buffer){
 	std::string ret;	
 	std::string fn = "filename=";
-	std::string str_buffer(b);
-	auto pos = str_buffer.find(fn);
-	auto new_pos = str_buffer.find('.',pos);	
+	auto pos = buffer.find(fn);
+	auto new_pos = buffer.find('.',pos);	
 	auto i = 0;
-	for (i = 0; str_buffer[new_pos + i] != '"'; i++){
-		auto g = str_buffer[new_pos + i];
+	for (i = 0; buffer[new_pos + i] != '"'; i++){
+		auto g = buffer[new_pos + i];
 		ret.push_back(g);
 		}	
 	return ret;
 	}
 
+namespace {
+	sockaddr_in make_server(){
+		sockaddr_in a{};
+		a.sin_family = AF_INET;
+		a.sin_port = htons(TCP_PORT);
+		a.sin_addr.s_addr = INADDR_ANY;
+		
+		return a;
+	}
+	
+}
+
+TCPService::TCPService(){
+	running = false;
+	socket_fd = -1;
+}
+
+TCPService::~TCPService(){
+	stop();
+}
+std::string TCPService::write_post(){
+	std::string response;
+	response += HTTP_OK;
+	std::string body ="<html>"
+			"<h1>Welcome to the Wifi File Transfer!</h1><body>"
+	"<form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">"
+		"<input type=\"file\" id= \"file\" name=\"file[]\" " 
+		"accept=\"image/*\" multiple>"
+		"<button type=\"submit\">Submit Upload(s)</button>"
+		"</form></body></html>";
+		response += "Content-Type: text/html\r\n";
+		response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+		response += "\r\n";
+		response += body;
+	
+	return response;
+}
+
+void TCPService::send_to_client(const std::string &r){
+	send(client_fd, r.data(), r.size(), 0);	
+}
+
+void TCPService::start(){
+	std::string buffer(8196,'\0');
+	
+	socket_fd = socket(AF_INET, SOCK_STREAM, 0);	
+	auto tcp_addr = make_server();	
+	bind(socket_fd, (struct sockaddr*)&tcp_addr, sizeof(tcp_addr));
+	
+	listen(socket_fd, 5);
+	
+	client_fd = accept(socket_fd, nullptr, nullptr);
+	recv(client_fd, buffer.data(), buffer.size(), 0);
+	
+	if (buffer.find("GET") != std::string::npos){
+		auto post = write_post();
+		send_to_client(post);
+	}	
+
+	int bytes_amt = recv(client_fd, buffer.data(), buffer.size(), 0);
+	bytes_stash.append(buffer, bytes_amt);
+
+}
+
+
+
+
+void TCPService::stop(){
+	running = false;
+	if (socket_fd >= 0) close(socket_fd);
+}
 
 int main()
 {
@@ -186,10 +249,10 @@ int main()
 	std::cout <<  std::endl <<"---This is the next buffer ----"
 		<<std::endl << buf  << std::endl;	
 	
-	std::string fe = get_file_ext(buffer);	
+	std::string fe = get_file_extensions(buffer);	
 	std::cout << "File name: " << fe << "\n";
 	
-	int content_length = parse_cl(buffer);
+	int content_length = parse_context_length(buffer);
 	int total_recieved = pic_bytes;	
 	int file_count{}, idx_ext{}, start_post{};
 	std::ofstream current_file;
@@ -207,7 +270,7 @@ int main()
 				std::string ctrl_char = "\r\n\r\n";	
 				auto idx = stash.find(c_type);
 				auto pos = stash.find(ctrl_char, idx);		
-				file_exts.push_back(get_file_ext(stash));
+				file_exts.push_back(get_file_extensions(stash));
 				
 				stash.erase(0, pos + 4);		
 				file_count++;	
