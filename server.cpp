@@ -11,7 +11,7 @@
 #include<sstream>
 #include<vector> 
 
-
+ParsingState parse_state;
 
 
 int parse_context_length(char buffer[]){
@@ -176,6 +176,29 @@ std::string TCPService::write_post(){
 
 void TCPService::send_to_client(const std::string &r){
 	send(client_fd, r.data(), r.size(), 0);	
+}
+
+void TCPService::run_state_machine(std::string &bytes){
+		while (parse_state != ParsingState::DONE){
+		 int bytes_amt = recv(client_fd, buffer.data(), buffer.size(), 0);
+		 bytes_stash.appebd*(buffer, bytes_amt);
+		 bool run = true;	
+		 while (run){
+			switch (parse_state){
+				case ParsingState::MULTIPART_HEADER:
+					parse_header();
+					parse_state = ParsingState::FILE_DATA;
+					break;	
+				case ParsingState::FILE_DATA:
+					parse_boundary();
+					parse_state = ParsingState::Done;
+					break;	
+				case ParsingState::Done:
+					break;		
+			}
+
+		 }	
+		}	
 }
 
 void TCPService::start(){

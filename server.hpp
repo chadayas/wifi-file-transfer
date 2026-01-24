@@ -16,6 +16,7 @@
 #define CONTENT_LENGTH_STRING "Content-Lgenth: "
 #define WEBKIT_BOUNDARY_STRING "------WebKitFormBoundary"
 #define HTTP_OK "HTTP/1.1 200 OK\r\n"
+#define CTRL_CHARACTERS "\r\n\r\n"
 
 enum class ParsingState {
          MULTIPART_HEADER,
@@ -23,9 +24,15 @@ enum class ParsingState {
          DONE
  };
 
-struct Context {
-	ParsingState p_state = ParsingState::MULTIPART_HEADER;
-	
+namespace FileParsing{
+	struct Context {
+		ParsingState p_state = ParsingState::MULTIPART_HEADER;
+	}
+		
+	void parse_header();
+	void parse_boundary();
+
+
 }
 
 int parse_context_length(const std::string &buffer);
@@ -47,6 +54,7 @@ class TCPService {
 	private:
 		std::string write_post();
 		std::string write_response();
+		void run_state_machine(std::string &bytes);
 
 		int file_count{}, idx_of_extenstions{}, start_post{};
 		std::string bytes_stash;	
