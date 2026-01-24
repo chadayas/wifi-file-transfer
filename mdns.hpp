@@ -1,4 +1,5 @@
 #ifndef GUARD_MDNS_H
+#define GUARD_MDNS_H
 
 #include<sys/socket.h>
 #include<arpa/inet.h>
@@ -24,11 +25,8 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes,
 
 void encode_name(vec_uc& p, const std::string &name);
 
-sockaddr_in make_mdnsaddr();
-sockaddr_in make_bindaddr();
-ip_mreq make_groups();
 
-class MDNSSerivce{
+class MDNSService{
 	public:
 		MDNSService();
 		~MDNSService();
@@ -43,7 +41,6 @@ class MDNSSerivce{
 	private:
 		void send_query();
 		void send_announcement();
-		void parse_response(vec_uc &pkt,int bytes);
 };
 
 
