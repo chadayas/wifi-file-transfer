@@ -1,3 +1,4 @@
+#include "mdns.hpp"
 #include<sys/socket.h>
 #include<arpa/inet.h>
 #include<string>
@@ -6,8 +7,6 @@
 #include<vector>
 #include<map>
 
-#define SERVICE std::string("_filetransfer._tcp.local")
-#define DNS std::string("_services._dns-sd._udp.local")
 
 std::string decode_name(const std::vector<unsigned char>& pkt, size_t& pos) {
 	std::string name;
@@ -84,7 +83,7 @@ void encode_name(std::vector<unsigned char> &p, const std::string &name){
 	p.push_back(0x00); // null term	
 }
 
-auto make_a_record(){
+static auto make_a_record(){
 	std::vector<unsigned char> packet;
 	packet.push_back(0x00);packet.push_back(0x00);//ID
 	packet.push_back(0x84);packet.push_back(0x00); // Flags
@@ -93,7 +92,7 @@ auto make_a_record(){
 	packet.push_back(0x00);packet.push_back(0x00); // NSCOUNT
 	packet.push_back(0x00);packet.push_back(0x00); // ARCOUNT
 
-	encode_name(packet, "MyLaptop." + SERVICE); // name
+	encode_name(packet, LOCAL_NAME + SERVICE); // name
 	packet.push_back(0x00);packet.push_back(0x01); // type A
 	packet.push_back(0x80);packet.push_back(0x01); // class
 
@@ -107,7 +106,7 @@ auto make_a_record(){
 	return packet;
 }
 
-auto make_ptr_record(){
+static auto make_ptr_record(){
 	std::vector<unsigned char> packet;
 	packet.push_back(0x00);packet.push_back(0x00);// ID
 	packet.push_back(0x84);packet.push_back(0x00); // Flags (response)
@@ -125,7 +124,7 @@ auto make_ptr_record(){
 
 	// RDATA is the instance name
 	std::vector<unsigned char> rdata;
-	encode_name(rdata, "MyLaptop." + SERVICE);
+	encode_name(rdata, LOCAL_NAME + SERVICE);
 
 	packet.push_back(0x00);packet.push_back(static_cast<unsigned char>(rdata.size())); // RDlength
 	for (auto b : rdata) packet.push_back(b);
@@ -133,7 +132,7 @@ auto make_ptr_record(){
 	return packet;
 }
 
-auto make_query(){
+static auto make_query(){
 	std::vector<unsigned char> packet;	
 	packet.push_back(0x00); packet.push_back(0x00); // ID 
 	packet.push_back(0x00); packet.push_back(0x00);; // Flags	
@@ -148,7 +147,97 @@ auto make_query(){
 	return packet;
 }
 
+static sockaddr_in make_mdnsaddr(){
+	sockaddr_in a{};
+	a.sin_family = AF_INET;
+	a.sin_port = htons(MDNS_PORT);
+	a.sin_addr.s_addr = inet_addr(MDNS_IP);
+	
+	return a;
+}
 
+static sockaddr_in make_bindaddr(){
+	sockaddr_in a{};
+	a.sin_family = AF_INET;
+	a.sin_port = htons(MDNS_PORT);
+	a.sin_addr.s_addr = INADDR_ANY;
+	
+	return a;
+}
+
+static ip_mreq make_groups(){
+	ip_mreq g{};
+	g.imr_multiaddr.s_addr =  inet_addr(MDNS_IP);
+	g.imr_interface.s_addr = INADDR_ANY;
+	return g;
+}
+
+MDNSService::MDNSService(){
+	socket_fd = -1;	
+	running = false;
+}
+
+MDNSService::~MDNSService(){
+	stop();
+}
+void MDNSService::start(){
+	running = true;	
+	std::vector<unsigned char> buffer(1024);
+	
+	socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	std::cout << "Socket result: " << socket_fd << std::endl; 	
+	
+	auto mdns_addr = make_mdnsaddr(); 
+	auto bind_addr = make_bindaddr();
+	auto groups = make_groups();
+	
+	int opt = setsockopt(socket_fd, IPPROTO_IP, IP_ADD_MEMBERSHIP, 
+			(char *)&groups, sizeof(groups));
+	
+	std::cout << "Joining result: " << opt << std::endl; 	
+	int reuse = 1;	
+	int opt2 = setsockopt(socket_fd, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse));
+	std::cout << "Reuse Port result: " << opt2 << std::endl;
+	int opt3 = setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+	std::cout << "Reuse address result: " << opt3 << std::endl;
+	int bi = bind(socket_fd, (struct sockaddr*)&bind_addr, sizeof(bind_addr));
+	std::cout << "Bind result: " << bi << std::endl; 	
+	
+	socklen_t size = sizeof(mdns_addr);	
+	socklen_t *size_ptr = &size;	
+	
+	while(running){	
+	int bytes = recvfrom(socket_fd, buffer.data(), buffer.size(),
+			0, (struct sockaddr*)&mdns_addr, size_ptr);
+		if (bytes > 0){
+			parse_response(buffer, bytes, devices);
+		} else if(bytes == -1){
+			std::cout << "." << std::flush;
+			send_announcement();	
+			send_query();
+		}	
+	}
+}
+void MDNSService::stop(){
+	running = false;
+	if (socket_fd >= 0) close(socket_fd);
+}
+void MDNSService::send_announcement(){
+	auto mdns_addr = make_mdnsaddr(); 
+	auto ptr_record = make_ptr_record();	
+	auto a_record = make_a_record();	
+	sendto(socket_fd, ptr_record.data(), ptr_record.size(), 0,
+			(struct sockaddr*)&mdns_addr,sizeof(mdns_addr));
+	sendto(socket_fd, a_record.data(), a_record.size(), 0,
+			(struct sockaddr*)&mdns_addr,sizeof(mdns_addr));
+}
+
+void MDNSService::send_query(){
+	auto query = make_query();	
+	auto mdns_addr = make_mdnsaddr(); 
+	sendto(socket_fd, query.data(), query.size(), 0,
+		(struct sockaddr*)&mdns_addr,sizeof(mdns_addr));
+}
 int main(){
 	
 	sockaddr_in group_sock;
