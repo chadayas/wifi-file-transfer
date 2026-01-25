@@ -1,19 +1,19 @@
 all: server client
 
-server : server.cpp
-	g++ -o s server.cpp
-client : client.cpp
-	g++ -o c client.cpp
+server : src/server.cpp
+	g++ -std=c++17 -o build/s src/server.cpp
+client : tests/client.cpp
+	g++ -std=c++17 -o build/c client.cpp
 
-mdns : mdns.cpp
-	g++ -o m mdns.cpp
+mdns : src/mdns.cpp
+	g++ -std=c++17 -o build/m src/mdns.cpp
 c_mdns: tests/c_mdns.cpp
-	g++ -o d tests/c_mdns.cpp
+	g++ -std=c++17 -o build/d tests/c_mdns.cpp
 
 run all:
-	./m & 
+	build/m & 
 	sleep 1.0
-	./d
+	build/d
 clean:
 	rm -f m s c d
 
