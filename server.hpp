@@ -11,7 +11,8 @@
 #include<iterator>
 #include<sstream>
 #include<vector>
- 
+#include<string>
+
 #define TCP_PORT 8080
 #define CONTENT_TYPE_STRING "Content-Type: image/"
 #define CONTENT_LENGTH_STRING "Content-Length: "
@@ -20,46 +21,47 @@
 #define CTRL_CHARACTERS "\r\n\r\n"
 
 enum class ParsingState {
-         MULTIPART_HEADER,
-         FILE_DATA,
-         DONE
- };
+	MULTIPART_HEADER,
+	FILE_DATA,
+	DONE
+};
 
-namespace FileParsing{
-	struct Context {
-		ParsingState p_state = ParsingState::MULTIPART_HEADER;
-		int file_count{}, idx_of_extensions{};
-		
-		std::string bytes_stash;	
-		std::vector<std::string> file_extensions;
-		std::ofstream current_file;	
-	};
-	
-	void parse_header(std::string &bytes);
-	void parse_boundary(std::string &bytes);
-}
+struct ParsingContext {
+	ParsingState state = ParsingState::MULTIPART_HEADER;
+	int file_count = 0;
+	int idx_of_extensions = 0;
 
-int parse_context_length(const std::string &buffer);
+	std::string bytes_stash;
+	std::string wbkit_bound;
+	std::vector<std::string> file_extensions;
+	std::ofstream current_file;
+};
+
 std::string find_boundary(const std::string &buffer);
 std::string get_file_extensions(const std::string &buffer);
 
 class TCPService {
-	public:
-		TCPService();
-		~TCPService();
-		
-		void start();
-		void stop();
-		void send_to_client(const std::string &response);
-		
-	private:
-		std::string write_post();
-		std::string write_response();
-		void run_state_machine(std::string &bytes);
-	private:	
-		bool running;
-		int socket_fd;		
-		int client_fd;
+public:
+	TCPService();
+	~TCPService();
+
+	void start();
+	void stop();
+
+private:
+	void send_to_client(const std::string &response);
+	std::string write_post();
+	std::string write_response();
+	void run_state_machine();
+	void parse_header();
+	void parse_file_data();
+
+private:
+	bool running;
+	int socket_fd;
+	int client_fd;
+	ParsingContext ctx;
+	std::string buffer;
 };
 
 
