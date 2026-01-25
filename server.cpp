@@ -11,7 +11,7 @@
 #include<sstream>
 #include<vector> 
 
-ParsingState parse_state;
+FileParsing::Context ctx;
 
 
 int parse_context_length(char buffer[]){
@@ -30,8 +30,6 @@ int parse_context_length(char buffer[]){
 	
 	return cl_int;
 }
-
-
 	
 //debug fn
 void  debug_buffer(char buffer[]){
@@ -83,10 +81,6 @@ std::string hold_stash(const std::string& s){
 	return ret;	
 }
 
-
-
-
-
 void  debug_buffer2(char buffer[]){
 	std::string ct = "Content-Type: image/";	
 	std::string del = "\r\n\r\n";	
@@ -111,14 +105,14 @@ void  debug_buffer2(char buffer[]){
 			std::cout << std::hex <<"[" <<static_cast<int>(c) << "]";
 	}	
 	std::cout << std::endl;
-	}
+}
 
-std::string find_boundary(const std::string &buffer){
+std::string find_boundary(const std::string &buf){
 	std::string wbkit = "------WebKitFormBoundary";	
-	auto idx = buffer.find(wbkit);
+	auto idx = buf.find(wbkit);
 	std::string boundary;
-	for (auto i = 0; buffer[idx + i] != '\r'; ++i){
-		boundary.push_back(t[idx+ i]);
+	for (auto i = 0; buf[idx + i] != '\r'; ++i){
+		boundary.push_back(buf[idx+ i]);
 	}	
 	return boundary;
 }
@@ -132,9 +126,9 @@ std::string get_file_extensions(const std::string &buffer){
 	for (i = 0; buffer[new_pos + i] != '"'; i++){
 		auto g = buffer[new_pos + i];
 		ret.push_back(g);
-		}	
+	}	
 	return ret;
-	}
+}
 
 namespace {
 	sockaddr_in make_server(){
@@ -142,10 +136,54 @@ namespace {
 		a.sin_family = AF_INET;
 		a.sin_port = htons(TCP_PORT);
 		a.sin_addr.s_addr = INADDR_ANY;
-		
+
 		return a;
 	}
+
+}
+
+void FileParsing::parse_header(std::string &b){
+	auto idx = b.find(CONTENT_TYPE_STRING);
+	auto pos = b.find(CTRL_CHARACTERS, idx);		
+	ctx.file_extensions.push_back(get_file_extensions(b));
+	b.erase(0, pos + 4);		
+	ctx.file_count++;	
 	
+	std::cout << std::string(30, '-') << "\n";
+	std::cout <<"[State::M_H] We are on file " << ctx.file_count << "\n";
+	
+	ctx.current_file.open("pic" + std::to_string(file_count) 
+	+ ctx.file_extensions[idx_extensions], std::ios::out | std::ios::binary);
+	p_state = State::FILE_DATA;
+}
+
+void FileParsing::parse_boundary(std::string &b){
+		
+	auto pos = b.find(wbkit_bound);
+	if (pos != std::string::npos){
+	   std::cout << " [State::FILE_DATA] We are on file " 
+		   << ctx.file_count << "\n";	
+				   
+	   ctx.current_file.write(b.data(), pos);
+       	   b.erase(0, pos + wbkit_bound.size());
+				  	 
+	   run = true;	
+           if (b.substr(0, 2) == "--"){
+		   ctx.current_file.close();  
+		   state = State::DONE;
+	   } else{
+		   ctx.current_file.close();
+		   ctx.idx_of_extensions++; 
+		   state = State::MULTIPART_HEADER; 
+	   }
+	   } else {
+		  std::size_t tail = wbkit_bound.size();
+		  if (b.size() > tail){
+		  std::size_t write = b.size() - tail;
+		  ctx.current_file.write(b.data(), write);
+		  b.erase(0, write); 
+		 }
+			
 }
 
 TCPService::TCPService(){
@@ -156,21 +194,37 @@ TCPService::TCPService(){
 TCPService::~TCPService(){
 	stop();
 }
+
 std::string TCPService::write_post(){
 	std::string response;
 	response += HTTP_OK;
 	std::string body ="<html>"
-			"<h1>Welcome to the Wifi File Transfer!</h1><body>"
-	"<form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">"
+		"<h1>Welcome to the Wifi File Transfer!</h1><body>"
+		"<form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">"
 		"<input type=\"file\" id= \"file\" name=\"file[]\" " 
 		"accept=\"image/*\" multiple>"
 		"<button type=\"submit\">Submit Upload(s)</button>"
 		"</form></body></html>";
-		response += "Content-Type: text/html\r\n";
-		response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
-		response += "\r\n";
-		response += body;
-	
+	response += "Content-Type: text/html\r\n";
+	response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+	response += "\r\n";
+	response += body;
+
+	return response;
+}
+
+std::string TCPService::write_response(){
+	std::string response; 
+	reponse += HTTP_OK;	
+	std::string bd1 = "<html>"
+		"<h1>Successfully uploaded " + std::to_string(file_count);
+	std::string bd2= " files!</h1>""</html>";
+ 	std::string body = bd1+bd2; 
+	response += "Content-Type: text/html\r\n";
+	response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+	response += "\r\n";
+	response += body;
+
 	return response;
 }
 
@@ -179,40 +233,43 @@ void TCPService::send_to_client(const std::string &r){
 }
 
 void TCPService::run_state_machine(std::string &bytes){
-		while (parse_state != ParsingState::DONE){
-		 int bytes_amt = recv(client_fd, buffer.data(), buffer.size(), 0);
-		 bytes_stash.appebd*(buffer, bytes_amt);
-		 bool run = true;	
-		 while (run){
-			switch (parse_state){
-				case ParsingState::MULTIPART_HEADER:
-					parse_header();
-					parse_state = ParsingState::FILE_DATA;
-					break;	
-				case ParsingState::FILE_DATA:
-					parse_boundary();
-					parse_state = ParsingState::Done;
-					break;	
-				case ParsingState::Done:
-					break;		
+	while (ctx.p_state != ParsingState::DONE){
+		int bytes_amt = recv(client_fd, buffer.data(), buffer.size(), 0);
+		bytes.append(buffer, bytes_amt);
+		bool run = true;	
+		while (run){
+		 switch (ctx.p_state){
+			case ParsingState::MULTIPART_HEADER:
+				FileParsing::parse_header(bytes);
+				ctx.p_state = ParsingState::FILE_DATA;
+				run = true;	
+				break;	
+			case ParsingState::FILE_DATA:
+				FileParsing::parse_boundary(bytes);
+				ctx.p_state = ParsingState::Done;
+				run = true;	
+				break;	
+			case ParsingState::DONE:
+				break;		
 			}
-
-		 }	
-		}	
+		if (p_state == ParsingState::DONE)
+			break;
+		   }	
+	}	
 }
 
 void TCPService::start(){
 	std::string buffer(8196,'\0');
-	
+
 	socket_fd = socket(AF_INET, SOCK_STREAM, 0);	
 	auto tcp_addr = make_server();	
 	bind(socket_fd, (struct sockaddr*)&tcp_addr, sizeof(tcp_addr));
-	
+
 	listen(socket_fd, 5);
-	
+
 	client_fd = accept(socket_fd, nullptr, nullptr);
 	recv(client_fd, buffer.data(), buffer.size(), 0);
-	
+
 	if (buffer.find("GET") != std::string::npos){
 		auto post = write_post();
 		send_to_client(post);
@@ -220,7 +277,12 @@ void TCPService::start(){
 
 	int bytes_amt = recv(client_fd, buffer.data(), buffer.size(), 0);
 	bytes_stash.append(buffer, bytes_amt);
-
+	run_state_machine(bytes_stash);
+	
+	if (p_state == ParsingState::DONE){
+		auto res = write_response();
+		send_to_client(res);
+	}
 }
 
 
@@ -228,7 +290,7 @@ void TCPService::start(){
 
 void TCPService::stop(){
 	running = false;
-	if (socket_fd >= 0) close(socket_fd);
+	if (socket_fd = 0) close(socket_fd);
 }
 
 int main()

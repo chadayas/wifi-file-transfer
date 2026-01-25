@@ -1,5 +1,6 @@
 #ifndef GUARD_SERVER_H
 #define GUARD_SERVER_H
+
 #include<iostream>
 #include<sys/socket.h>
 #include<netinet/in.h>
@@ -13,7 +14,7 @@
  
 #define TCP_PORT 8080
 #define CONTENT_TYPE_STRING "Content-Type: image/"
-#define CONTENT_LENGTH_STRING "Content-Lgenth: "
+#define CONTENT_LENGTH_STRING "Content-Length: "
 #define WEBKIT_BOUNDARY_STRING "------WebKitFormBoundary"
 #define HTTP_OK "HTTP/1.1 200 OK\r\n"
 #define CTRL_CHARACTERS "\r\n\r\n"
@@ -27,12 +28,15 @@ enum class ParsingState {
 namespace FileParsing{
 	struct Context {
 		ParsingState p_state = ParsingState::MULTIPART_HEADER;
-	}
+		int file_count{}, idx_of_extensions{};
 		
-	void parse_header();
-	void parse_boundary();
-
-
+		std::string bytes_stash;	
+		std::vector<std::string> file_extensions;
+		std::ofstream current_file;	
+	};
+	
+	void parse_header(std::string &bytes);
+	void parse_boundary(std::string &bytes);
 }
 
 int parse_context_length(const std::string &buffer);
@@ -48,17 +52,14 @@ class TCPService {
 		void stop();
 		void send_to_client(const std::string &response);
 		
-		bool running;
-		int socket_fd;		
-		int client_fd;	
 	private:
 		std::string write_post();
 		std::string write_response();
 		void run_state_machine(std::string &bytes);
-
-		int file_count{}, idx_of_extenstions{}, start_post{};
-		std::string bytes_stash;	
-		std::vector<std::string> file_extensions;
+	private:	
+		bool running;
+		int socket_fd;		
+		int client_fd;
 };
 
 
