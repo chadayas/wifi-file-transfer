@@ -246,6 +246,3 @@ auto MDNSService::get_devices(SharedState &s){
 
 }
 
-int main(){
-	return 0;
-}

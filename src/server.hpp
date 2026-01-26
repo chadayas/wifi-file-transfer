@@ -45,7 +45,9 @@ std::string get_file_extensions(const std::string &buffer);
 
 class TCPService {
 public:
-	TCPService(SharedState &s) : shared(s) {}
+	TCPService(SharedState &s) : shared(s), running(false), 
+	socket_fd(-1), client_fd(-1), buffer(8196, '\0') {}
+	
 	~TCPService();
 
 	void start();

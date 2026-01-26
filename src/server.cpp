@@ -35,19 +35,28 @@ std::string get_file_extensions(const std::string &buffer){
 	return ret;
 }
 
-TCPService::TCPService() : running(false), socket_fd(-1), client_fd(-1), buffer(8196, '\0') {
-}
 
 TCPService::~TCPService(){
 	stop();
+}
+std::string TCPService::build_dropdown(){
+	std::lock_guard<std::mutex> lock(shared.mtx);	
+	std::string html = "<select>";
+	for (const auto& [ip, name] : shared.devices){
+		html += "<option value=\"" + ip + "\">" + name + "</option>";
+	}
+	html += "</select>";	
+	return html; 
 }
 
 std::string TCPService::write_post(){
 	std::string response;
 	response += HTTP_OK;
+	std::string dropdown = build_dropdown();	
 	std::string body = "<html>"
 		"<h1>Welcome to the Wifi File Transfer!</h1><body>"
 		"<form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">"
+		"<label>Pick a destination</label>" + dropdown +	
 		"<input type=\"file\" id=\"file\" name=\"file[]\" "
 		"accept=\"image/*\" multiple>"
 		"<button type=\"submit\">Submit Upload(s)</button>"
@@ -72,16 +81,7 @@ std::string TCPService::write_response(){
 	return response;
 }
 
-std::string TCPSService::build_dropdown(){
-	std::lock_guard<std::mutex> lock(shared.mtx);	
-	std::string html = "<html><select>";
-	for (const auto& [ip, name] : shared.devices){
-		std::string html += "<option value=\"" + ip + "\">" + name + "</option>";
 
-	}
-	html += "</select></html>"	
-	return html; 
-}
 
 void TCPService::send_to_client(const std::string &r){
 	send(client_fd, r.data(), r.size(), 0);
@@ -165,7 +165,6 @@ void TCPService::run_state_machine(){
 }
 
 void TCPService::start(){
-	{std::lock_guard<std::mutex> lock(server_mtx);}	
 	socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (socket_fd < 0){
 		std::cout << "[ERROR] Socket creation failed" << std::endl;
@@ -226,13 +225,15 @@ void TCPService::stop(){
 }
 
 int main(){
-	SharedState shared	
+	SharedState shared;	
 	TCPService tcp(shared);
 	MDNSService mdns(shared);
 	
-	std::thread mdns_thread(mdns.get_devices(), shared);
-	std::thread tcp_thread(tcp.build_dropdown(), shared);
-
-
+	std::thread mdns_thread(&MDNSService::start, &mdns);
+	tcp.start();
+	
+	mdns.stop();
+	mdns_thread.join();
+	
 	return 0;
 }
