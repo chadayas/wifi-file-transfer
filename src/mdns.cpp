@@ -168,16 +168,15 @@ namespace { // helper funcs
 	}
 }
 
-MDNSService::MDNSService(){
-	socket_fd = -1;	
-	running = false;
-}
+//MDNSService::MDNSService(){
+	//socket_fd = -1;	
+	//running = false;
+//}
 
 MDNSService::~MDNSService(){
 	stop();
 }
 void MDNSService::start(){
-	std::lock_guard<std::mutex> lock(server_mtx);	
 	timeval tv{1, 0};
 	running = true;	
 	std::vector<unsigned char> buffer(1024);
@@ -211,13 +210,15 @@ void MDNSService::start(){
 	int bytes = recvfrom(socket_fd, buffer.data(), buffer.size(),
 			0, (struct sockaddr*)&mdns_addr, size_ptr);
 		if (bytes > 0){
-			parse_response(buffer, bytes, devices);
+			std::lock_guard<std::mutex> lock(shared.mtx);
+			parse_response(buffer, bytes, shared.devices);
 		} else if(bytes == -1){
 			std::cout << "." << std::flush;
 			send_announcement();	
 			send_query();
 		}	
 	}
+
 }
 void MDNSService::stop(){
 	running = false;
@@ -239,9 +240,12 @@ void MDNSService::send_query(){
 	sendto(socket_fd, query.data(), query.size(), 0,
 		(struct sockaddr*)&mdns_addr,sizeof(mdns_addr));
 }
-int main(){
-	MDNSService mdns;
-	mdns.start();
+auto MDNSService::get_devices(SharedState &s){
+	std::lock_guard<std::mutex> lock(shared.mtx);
+	shared.devices = devices;
 
+}
+
+int main(){
 	return 0;
 }

@@ -1,6 +1,7 @@
 #ifndef GUARD_MDNS_H
 #define GUARD_MDNS_H
 
+#include "shared.hpp"
 #include<sys/socket.h>
 #include<arpa/inet.h>
 #include<string>
@@ -31,12 +32,12 @@ void encode_name(vec_uc& p, const std::string &name);
 
 class MDNSService{
 	public:
-		MDNSService();
+		MDNSService(SharedState& s) : shared(s) {}
 		~MDNSService();
-		
+			
 		void start();
 		void stop();
-		std::map<std::string, std::string> get_devices();	
+		auto get_devices(SharedState &s);	
 	private:	
 		bool running;
 		int socket_fd;
@@ -44,6 +45,7 @@ class MDNSService{
 	private:
 		void send_query();
 		void send_announcement();
+		SharedState& shared;
 };
 
 

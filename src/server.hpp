@@ -1,6 +1,7 @@
 #ifndef GUARD_SERVER_H
 #define GUARD_SERVER_H
 
+#include "shared.hpp"
 #include<iostream>
 #include<sys/socket.h>
 #include<netinet/in.h>
@@ -44,7 +45,7 @@ std::string get_file_extensions(const std::string &buffer);
 
 class TCPService {
 public:
-	TCPService();
+	TCPService(SharedState &s) : shared(s) {}
 	~TCPService();
 
 	void start();
@@ -54,6 +55,8 @@ private:
 	void send_to_client(const std::string &response);
 	std::string write_post();
 	std::string write_response();
+	std::string build_dropdown();
+
 	void run_state_machine();
 	void parse_header();
 	void parse_file_data();
@@ -63,6 +66,7 @@ private:
 	int socket_fd;
 	int client_fd;
 	ParsingContext ctx;
+	SharedState& shared;	
 	std::string buffer;
 };
 

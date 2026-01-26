@@ -72,6 +72,17 @@ std::string TCPService::write_response(){
 	return response;
 }
 
+std::string TCPSService::build_dropdown(){
+	std::lock_guard<std::mutex> lock(shared.mtx);	
+	std::string html = "<html><select>";
+	for (const auto& [ip, name] : shared.devices){
+		std::string html += "<option value=\"" + ip + "\">" + name + "</option>";
+
+	}
+	html += "</select></html>"	
+	return html; 
+}
+
 void TCPService::send_to_client(const std::string &r){
 	send(client_fd, r.data(), r.size(), 0);
 }
@@ -215,11 +226,13 @@ void TCPService::stop(){
 }
 
 int main(){
-	TCPService server;
-	MDNSService mdns;
+	SharedState shared	
+	TCPService tcp(shared);
+	MDNSService mdns(shared);
 	
-	std::thread t1(mdns.start());
-	std::thread t2(server.start());
+	std::thread mdns_thread(mdns.get_devices(), shared);
+	std::thread tcp_thread(tcp.build_dropdown(), shared);
+
 
 	return 0;
 }
