@@ -56,7 +56,7 @@ std::string TCPService::write_post(){
 	std::string body = "<html>"
 		"<h1>Welcome to the Wifi File Transfer!</h1><body>"
 		"<form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">"
-		"<label>Pick a destination</label>" + dropdown +	
+		"<label>Pick a destination</label>" + dropdown + "<br><br>"	
 		"<input type=\"file\" id=\"file\" name=\"file[]\" "
 		"accept=\"image/*\" multiple>"
 		"<button type=\"submit\">Submit Upload(s)</button>"

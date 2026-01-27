@@ -47,11 +47,11 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes,
 			                std::to_string(pkt[pos+2]) + "." +
 			                std::to_string(pkt[pos+3]);
 			devices[ip] = name;
-			std::cout << "Found A: " << name << " -> " << ip << std::endl;
+			//std::cout << "Found A: " << name << " -> " << ip << std::endl;
 		} else if (type == 0x0C) { // PTR record
 			size_t rdata_pos = rdata_start;
 			std::string instance = decode_name(pkt, rdata_pos);
-			std::cout << "Found PTR: " << name << " -> " << instance << std::endl;
+			//std::cout << "Found PTR: " << name << " -> " << instance << std::endl;
 		}
 		pos = rdata_start + rdlen;
 	}
@@ -75,6 +75,7 @@ void encode_name(std::vector<unsigned char> &p, const std::string &name){
 	}
 	p.push_back(0x00); // null term	
 }
+
 namespace { // helper funcs
 	auto make_a_record(){
 		std::vector<unsigned char> packet;
@@ -168,14 +169,11 @@ namespace { // helper funcs
 	}
 }
 
-//MDNSService::MDNSService(){
-	//socket_fd = -1;	
-	//running = false;
-//}
 
 MDNSService::~MDNSService(){
 	stop();
 }
+
 void MDNSService::start(){
 	timeval tv{1, 0};
 	running = true;	
@@ -220,10 +218,12 @@ void MDNSService::start(){
 	}
 
 }
+
 void MDNSService::stop(){
 	running = false;
 	if (socket_fd >= 0) close(socket_fd);
 }
+
 void MDNSService::send_announcement(){
 	auto mdns_addr = make_mdnsaddr(); 
 	auto ptr_record = make_ptr_record();	
@@ -240,6 +240,7 @@ void MDNSService::send_query(){
 	sendto(socket_fd, query.data(), query.size(), 0,
 		(struct sockaddr*)&mdns_addr,sizeof(mdns_addr));
 }
+
 auto MDNSService::get_devices(SharedState &s){
 	std::lock_guard<std::mutex> lock(shared.mtx);
 	shared.devices = devices;
