@@ -47,11 +47,11 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes,
 			                std::to_string(pkt[pos+2]) + "." +
 			                std::to_string(pkt[pos+3]);
 			devices[ip] = name;
-			//std::cout << "Found A: " << name << " -> " << ip << std::endl;
+			std::cout << "Found A: " << name << " -> " << ip << std::endl;
 		} else if (type == 0x0C) { // PTR record
 			size_t rdata_pos = rdata_start;
 			std::string instance = decode_name(pkt, rdata_pos);
-			//std::cout << "Found PTR: " << name << " -> " << instance << std::endl;
+			std::cout << "Found PTR: " << name << " -> " << instance << std::endl;
 		}
 		pos = rdata_start + rdlen;
 	}
@@ -126,6 +126,41 @@ namespace { // helper funcs
 
 		return packet;
 	}
+
+ 	auto make_srv_record(){                                                           
+		std::vector<unsigned char> packet;                                            
+		// Header (same as your others)                                               
+		packet.push_back(0x00);packet.push_back(0x00); // ID                          
+		packet.push_back(0x84);packet.push_back(0x00); // Flags (response)            
+		packet.push_back(0x00);packet.push_back(0x00); // QDCOUNT                     
+		packet.push_back(0x00);packet.push_back(0x01); // ANCOUNT                     
+		packet.push_back(0x00);packet.push_back(0x00); // NSCOUNT                     
+		packet.push_back(0x00);packet.push_back(0x00); // ARCOUNT                     
+
+		// NAME: instance name (what PTR points to)                                   
+		encode_name(packet, LOCAL_NAME + SERVICE);                                    
+
+		packet.push_back(0x00);packet.push_back(0x21); // TYPE: SRV (33)              
+		packet.push_back(0x80);packet.push_back(0x01); // CLASS: IN + cache-flush     
+
+		packet.push_back(0x00);packet.push_back(0x00); // TTL                         
+		packet.push_back(0x00);packet.push_back(0x78); // TTL = 120 sec               
+
+		// RDATA                                                                      
+		std::vector<unsigned char> rdata;                                             
+		rdata.push_back(0x00);rdata.push_back(0x00); // Priority                      
+		rdata.push_back(0x00);rdata.push_back(0x00); // Weight                        
+		rdata.push_back(0x1F);rdata.push_back(0x90); // Port: 8080                    
+		encode_name(rdata, LOCAL_NAME + "local");    // Target hostname               
+
+		packet.push_back(0x00);packet.push_back(static_cast<unsigned                  
+		char>(rdata.size()));                                                             
+		for (auto b : rdata) packet.push_back(b);                                     
+                                                                                    
+      		return packet;                                                                
+  }                                                                                 
+                                       
+
 
 	auto make_query(){
 		std::vector<unsigned char> packet;	
@@ -247,3 +282,9 @@ auto MDNSService::get_devices(SharedState &s){
 
 }
 
+/*int main(){
+	SharedState shared;	
+	MDNSService mdns(shared);
+	mdns.start();
+
+}*/

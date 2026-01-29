@@ -15,6 +15,7 @@
 #include<string>
 #include<thread>
 #include<mutex>
+#include<cstdlib>
 
 #define TCP_PORT 8080
 #define CONTENT_TYPE_STRING "Content-Type: image/"
@@ -42,6 +43,7 @@ struct ParsingContext {
 
 std::string find_boundary(const std::string &buffer);
 std::string get_file_extensions(const std::string &buffer);
+std::string save_to_dir();
 
 class TCPService {
 public:

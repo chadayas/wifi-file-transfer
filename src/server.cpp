@@ -11,6 +11,14 @@ namespace {
 	}
 }
 
+std::string save_to_dir(){
+	const char* env = std::getenv("HOME");
+	if (!env) env = std::getenv("USERPROFILE");
+	if (!env) return "./";
+	
+	return std::string(env) + "/Downloads/wifi_transfer/";
+
+
 std::string find_boundary(const std::string &buf){
 	std::string wbkit = WEBKIT_BOUNDARY_STRING;
 	auto idx = buf.find(wbkit);
@@ -97,8 +105,9 @@ void TCPService::parse_header(){
 
 	std::cout << std::string(30, '-') << "\n";
 	std::cout << "[State::M_H] We are on file " << ctx.file_count << "\n";
-
-	ctx.current_file.open("pic" + std::to_string(ctx.file_count)
+	
+	std::string home_dir = save_to_dir();
+	ctx.current_file.open(home_dir + "pic" + std::to_string(ctx.file_count)
 		+ ctx.file_extensions[ctx.idx_of_extensions], std::ios::out | std::ios::binary);
 
 	ctx.state = ParsingState::FILE_DATA;
@@ -232,7 +241,6 @@ int main(){
 	std::thread mdns_thread(&MDNSService::start, &mdns);
 	tcp.start();
 	
-	mdns.stop();
 	mdns_thread.join();
 	
 	return 0;
