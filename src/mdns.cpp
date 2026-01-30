@@ -25,19 +25,19 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes,
                     std::map<std::string,std::string>& devices) {
 	if (bytes < 12) return;
 
-	int ancount = (pkt[6] << 8) | pkt[7];
+	uint16_t ancount = (pkt[6] << 8) | pkt[7];
 	size_t pos = 12;
-	int qdcount = (pkt[4] << 8) | pkt[5];
-	for (int i = 0; i < qdcount; i++) {
+	uint16_t qdcount = (pkt[4] << 8) | pkt[5];
+	for (uint16_t i = 0; i < qdcount; i++) {
 		while (pkt[pos] != 0) pos++;
 		pos += 5;
 	}
 
-	for (int i = 0; i < ancount; i++) {
+	for (uint16_t i = 0; i < ancount; i++) {
 		std::string name = decode_name(pkt, pos);
-		int type = (pkt[pos] << 8) | pkt[pos + 1];
+		uint16_t type = (pkt[pos] << 8) | pkt[pos + 1];
 		pos += 8;
-		int rdlen = (pkt[pos] << 8) | pkt[pos + 1];
+		uint16_t rdlen = (pkt[pos] << 8) | pkt[pos + 1];
 		pos += 2;
 		size_t rdata_start = pos;
 
@@ -52,6 +52,11 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes,
 			size_t rdata_pos = rdata_start;
 			std::string instance = decode_name(pkt, rdata_pos);
 			std::cout << "Found PTR: " << name << " -> " << instance << std::endl;
+		}
+	
+		else if (type == 0x21){
+			uint16_t port = (pkt[rdata_start + 4] << 8) | pkt[rdata_start + 5];
+			std::cout << "Found PORT" << name << " ->" << port << std::endl;	
 		}
 		pos = rdata_start + rdlen;
 	}
@@ -77,74 +82,49 @@ void encode_name(std::vector<unsigned char> &p, const std::string &name){
 }
 
 namespace { // helper funcs
+	
 	auto make_a_record(){
-		std::vector<unsigned char> packet;
-		packet.push_back(0x00);packet.push_back(0x00);//ID
-		packet.push_back(0x84);packet.push_back(0x00); // Flags
-		packet.push_back(0x00);packet.push_back(0x00);// QDCOUNT
-		packet.push_back(0x00);packet.push_back(0x01); // ANCOUNT
-		packet.push_back(0x00);packet.push_back(0x00); // NSCOUNT
-		packet.push_back(0x00);packet.push_back(0x00); // ARCOUNT
+		std::vector<unsigned char> a_pkt;
+		a_pkt.push_back(0x00);a_pkt.push_back(0x01); // type A
+		a_pkt.push_back(0x80);a_pkt.push_back(0x01); // class
 
-		encode_name(packet, LOCAL_NAME + SERVICE); // name
-		packet.push_back(0x00);packet.push_back(0x01); // type A
-		packet.push_back(0x80);packet.push_back(0x01); // class
+		a_pkt.push_back(0x00);a_pkt.push_back(0x00); // TTL
+		a_pkt.push_back(0x00);a_pkt.push_back(0x64); // TTL
+		a_pkt.push_back(0x00);a_pkt.push_back(0x04); // RDlength (4 bytes for IP)
 
-		packet.push_back(0x00);packet.push_back(0x00); // TTL
-		packet.push_back(0x00);packet.push_back(0x64); // TTL
-		packet.push_back(0x00);packet.push_back(0x04); // RDlength (4 bytes for IP)
+		a_pkt.push_back(0xc0);a_pkt.push_back(0xa8); // ip 192.168.
+		a_pkt.push_back(0x01);a_pkt.push_back(0xaa); // 1.170
 
-		packet.push_back(0xc0);packet.push_back(0xa8); // ip 192.168.
-		packet.push_back(0x01);packet.push_back(0xaa); // 1.170
-
-		return packet;
+		return a_pkt;
 	}
 
 	auto make_ptr_record(){
 
-		std::vector<unsigned char> packet;
-		packet.push_back(0x00);packet.push_back(0x00);// ID
-		packet.push_back(0x84);packet.push_back(0x00); // Flags (response)
-		packet.push_back(0x00);packet.push_back(0x00);// QDCOUNT
-		packet.push_back(0x00);packet.push_back(0x01); // ANCOUNT
-		packet.push_back(0x00);packet.push_back(0x00); // NSCOUNT
-		packet.push_back(0x00);packet.push_back(0x00); // ARCOUNT
+		std::vector<unsigned char> ptr_pkt;
+		
+		ptr_pkt.push_back(0x00);ptr_pkt.push_back(0x0C); // type PTR
+		ptr_pkt.push_back(0x80);ptr_pkt.push_back(0x01); // class
 
-		encode_name(packet, SERVICE); // _filetransfer._tcp.local
-		packet.push_back(0x00);packet.push_back(0x0C); // type PTR
-		packet.push_back(0x80);packet.push_back(0x01); // class
-
-		packet.push_back(0x00);packet.push_back(0x00); // TTL
-		packet.push_back(0x00);packet.push_back(0x64); // TTL
+		ptr_pkt.push_back(0x00);ptr_pkt.push_back(0x00); // TTL
+		ptr_pkt.push_back(0x00);ptr_pkt.push_back(0x64); // TTL
 
 		// RDATA is the instance name
 		std::vector<unsigned char> rdata;
 		encode_name(rdata, LOCAL_NAME + SERVICE);
 
-		packet.push_back(0x00);packet.push_back(static_cast<unsigned char>(rdata.size())); // RDlength
-		for (auto b : rdata) packet.push_back(b);
+		ptr_pkt.push_back(0x00);ptr_pkt.push_back(static_cast<unsigned char>(rdata.size())); // RDlength
+		for (auto b : rdata) ptr_pkt.push_back(b);
 
-		return packet;
+		return ptr_pkt;
 	}
 
  	auto make_srv_record(){                                                           
-		std::vector<unsigned char> packet;                                            
-		// Header (same as your others)                                               
-		packet.push_back(0x00);packet.push_back(0x00); // ID                          
-		packet.push_back(0x84);packet.push_back(0x00); // Flags (response)            
-		packet.push_back(0x00);packet.push_back(0x00); // QDCOUNT                     
-		packet.push_back(0x00);packet.push_back(0x01); // ANCOUNT                     
-		packet.push_back(0x00);packet.push_back(0x00); // NSCOUNT                     
-		packet.push_back(0x00);packet.push_back(0x00); // ARCOUNT                     
+		std::vector<unsigned char> srv_pkt;                                            
+		srv_pkt.push_back(0x00);srv_pkt.push_back(0x21); // TYPE: SRV (33)              
+		srv_pkt.push_back(0x80);srv_pkt.push_back(0x01); // CLASS: IN + cache-flush     
 
-		// NAME: instance name (what PTR points to)                                   
-		encode_name(packet, LOCAL_NAME + SERVICE);                                    
-
-		packet.push_back(0x00);packet.push_back(0x21); // TYPE: SRV (33)              
-		packet.push_back(0x80);packet.push_back(0x01); // CLASS: IN + cache-flush     
-
-		packet.push_back(0x00);packet.push_back(0x00); // TTL                         
-		packet.push_back(0x00);packet.push_back(0x78); // TTL = 120 sec               
+		srv_pkt.push_back(0x00);srv_pkt.push_back(0x00); // TTL                         
+		srv_pkt.push_back(0x00);srv_pkt.push_back(0x78); // TTL = 120 sec               
 
 		// RDATA                                                                      
 		std::vector<unsigned char> rdata;                                             
@@ -153,13 +133,32 @@ namespace { // helper funcs
 		rdata.push_back(0x1F);rdata.push_back(0x90); // Port: 8080                    
 		encode_name(rdata, LOCAL_NAME + "local");    // Target hostname               
 
-		packet.push_back(0x00);packet.push_back(static_cast<unsigned                  
+		srv_pkt.push_back(0x00);srv_pkt.push_back(static_cast<unsigned                  
 		char>(rdata.size()));                                                             
-		for (auto b : rdata) packet.push_back(b);                                     
+		for (auto b : rdata) srv_pkt.push_back(b);                                     
                                                                                     
-      		return packet;                                                                
+      		return srv_pkt;                                                                
   }                                                                                 
-                                       
+        auto build_send_record(){
+		// build header with 3 answers 	
+		std::vector<unsigned char> pkt;	
+		pkt.push_back(0x00);pkt.push_back(0x00); // ID                          
+		pkt.push_back(0x84);pkt.push_back(0x00); // Flags (response)            
+		pkt.push_back(0x00);pkt.push_back(0x00); // QDCOUNT                     
+		pkt.push_back(0x00);pkt.push_back(0x03); // ANCOUNT                     
+		pkt.push_back(0x00);pkt.push_back(0x00); // NSCOUNT                     
+		pkt.push_back(0x00);pkt.push_back(0x00); // ARCOUNT                     
+		
+		encode_name(pkt, LOCAL_NAME + SERVICE); // name
+		auto ptr_rec = make_ptr_record();	
+		auto a_rec = make_a_record();	
+		auto srv_rec = make_srv_record();	
+		pkt.insert(pkt.end(),ptr_rec.begin(), ptr_rec.end());
+		pkt.insert(pkt.end(),a_rec.begin(), a_rec.end());
+		pkt.insert(pkt.end(),srv_rec.begin(), srv_rec.end());
+		
+		return pkt;
+	}                                
 
 
 	auto make_query(){
@@ -261,14 +260,11 @@ void MDNSService::stop(){
 
 void MDNSService::send_announcement(){
 	auto mdns_addr = make_mdnsaddr(); 
-	auto ptr_record = make_ptr_record();	
-	auto a_record = make_a_record();	
-	sendto(socket_fd, ptr_record.data(), ptr_record.size(), 0,
-			(struct sockaddr*)&mdns_addr,sizeof(mdns_addr));
-	sendto(socket_fd, a_record.data(), a_record.size(), 0,
-			(struct sockaddr*)&mdns_addr,sizeof(mdns_addr));
+	auto record = build_send_record();
+	
+	sendto(socket_fd, record.data(), record.size(), 0,
+		(struct sockaddr*)&mdns_addr,sizeof(mdns_addr));
 }
-
 void MDNSService::send_query(){
 	auto query = make_query();	
 	auto mdns_addr = make_mdnsaddr(); 
