@@ -1,7 +1,7 @@
 all: server client
 
 server : src/server.cpp
-	g++ src/server.cpp src/mdns.cpp -std=c++17 -pthread -o build/s 
+	g++ src/server.cpp src/mdns.cpp src/receiver.cpp -std=c++17 -pthread -o build/s
 client : tests/client.cpp
 	g++ -std=c++17 -o build/c client.cpp
 

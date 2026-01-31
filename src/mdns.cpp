@@ -159,7 +159,7 @@ namespace { // helper funcs
 		std::vector<unsigned char> rdata;                                             
 		rdata.push_back(0x00);rdata.push_back(0x00); // Priority                      
 		rdata.push_back(0x00);rdata.push_back(0x00); // Weight                        
-		rdata.push_back(0x1F);rdata.push_back(0x90); // Port: 8080                    
+		rdata.push_back(0x23);rdata.push_back(0x82); // Port: 9090                    
 		encode_name(rdata, LOCAL_NAME + "local");    // Target hostname               
 
 		srv_pkt.push_back(0x00);srv_pkt.push_back(static_cast<unsigned                  
@@ -271,9 +271,7 @@ void MDNSService::start(){
 	
 	socklen_t size = sizeof(mdns_addr);	
 	socklen_t *size_ptr = &size;	
-	int ITERS = 20;	
-	int i = 0;	
-	while(i != ITERS){	
+	while(running){	
 	int bytes = recvfrom(socket_fd, buffer.data(), buffer.size(),
 			0, (struct sockaddr*)&mdns_addr, size_ptr);
 		if (bytes > 0){
@@ -284,7 +282,7 @@ void MDNSService::start(){
 			send_announcement();	
 			send_query();
 		}	
-		++i;	
+		
 	}
 
 }
@@ -312,8 +310,8 @@ void MDNSService::send_query(){
 std::lock_guard<std::mutex> lock(shared.mtx);
 }
 */
-int main(){
-	SharedState shared;	
+/*int main(){
+	SharedState shared;
 	MDNSService mdns(shared);
 	mdns.start();
 	std::cout << "\n";
@@ -321,6 +319,5 @@ int main(){
 		std::cout << name << " -> " << "ip: " << info.ip
 			<< " Port: "<< info.port << std::endl;
 	}
-		
-}
-//*/
+
+}*/

@@ -16,6 +16,7 @@
 #include<thread>
 #include<mutex>
 #include<cstdlib>
+#include<arpa/inet.h>
 
 #define TCP_PORT 8080
 #define CONTENT_TYPE_STRING "Content-Type: image/"
@@ -38,7 +39,7 @@ struct ParsingContext {
 	std::string bytes_stash;
 	std::string wbkit_bound;
 	std::vector<std::string> file_extensions;
-	std::ofstream current_file;
+	std::vector<std::vector<char>> file_buffers;
 };
 
 
@@ -66,14 +67,16 @@ private:
 	void run_state_machine();
 	void parse_header();
 	void parse_file_data();
+	void forward_to_device(const std::string& device_name);
 
 private:
 	bool running;
 	int socket_fd;
 	int client_fd;
 	ParsingContext ctx;
-	SharedState& shared;	
+	SharedState& shared;
 	std::string buffer;
+	std::string selected_device;
 };
 
 

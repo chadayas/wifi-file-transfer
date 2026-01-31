@@ -1,5 +1,6 @@
 #include "server.hpp"
 #include "mdns.hpp"
+#include "receiver.hpp"
 
 namespace {
 	sockaddr_in make_server(){
@@ -49,7 +50,7 @@ TCPService::~TCPService(){
 }
 std::string TCPService::build_dropdown(){
 	std::lock_guard<std::mutex> lock(shared.mtx);	
-	std::string html = "<select>";
+	std::string html = "<select name=\"device\">";
 	for (const auto& [name, info ] : shared.devices){
 		html += "<option value=\"" + name + "\">" + info.ip+ "</option>";
 	}
@@ -105,28 +106,25 @@ void TCPService::parse_header(){
 
 	std::cout << std::string(30, '-') << "\n";
 	std::cout << "[State::M_H] We are on file " << ctx.file_count << "\n";
-	
-	std::string home_dir = save_to_dir();
-	ctx.current_file.open(home_dir + "pic" + std::to_string(ctx.file_count)
-		+ ctx.file_extensions[ctx.idx_of_extensions], std::ios::out | std::ios::binary);
+
+	ctx.file_buffers.emplace_back();
 
 	ctx.state = ParsingState::FILE_DATA;
 }
 
 void TCPService::parse_file_data(){
 	auto pos = ctx.bytes_stash.find(ctx.wbkit_bound);
+	auto& buf = ctx.file_buffers.back();
 
 	if (pos != std::string::npos){
 		std::cout << "[State::FILE_DATA] We are on file " << ctx.file_count << "\n";
 
-		ctx.current_file.write(ctx.bytes_stash.data(), pos);
+		buf.insert(buf.end(), ctx.bytes_stash.data(), ctx.bytes_stash.data() + pos);
 		ctx.bytes_stash.erase(0, pos + ctx.wbkit_bound.size());
 
 		if (ctx.bytes_stash.substr(0, 2) == "--"){
-			ctx.current_file.close();
 			ctx.state = ParsingState::DONE;
 		} else {
-			ctx.current_file.close();
 			ctx.idx_of_extensions++;
 			ctx.state = ParsingState::MULTIPART_HEADER;
 		}
@@ -134,10 +132,62 @@ void TCPService::parse_file_data(){
 		std::size_t tail = ctx.wbkit_bound.size();
 		if (ctx.bytes_stash.size() > tail){
 			std::size_t write_size = ctx.bytes_stash.size() - tail;
-			ctx.current_file.write(ctx.bytes_stash.data(), write_size);
+			buf.insert(buf.end(), ctx.bytes_stash.data(), ctx.bytes_stash.data() + write_size);
 			ctx.bytes_stash.erase(0, write_size);
 		}
 	}
+}
+
+void TCPService::forward_to_device(const std::string& device_name){
+	std::lock_guard<std::mutex> lock(shared.mtx);
+	auto it = shared.devices.find(device_name);
+	if (it == shared.devices.end()){
+		std::cout << "[ERROR] Device not found: " << device_name << std::endl;
+		return;
+	}
+
+	auto& info = it->second;
+	int sock = socket(AF_INET, SOCK_STREAM, 0);
+	if (sock < 0){
+		std::cout << "[ERROR] Failed to create forwarding socket" << std::endl;
+		return;
+	}
+
+	sockaddr_in dest{};
+	dest.sin_family = AF_INET;
+	dest.sin_port = htons(info.port);
+	inet_pton(AF_INET, info.ip.c_str(), &dest.sin_addr);
+
+	if (connect(sock, (sockaddr*)&dest, sizeof(dest)) < 0){
+		std::cout << "[ERROR] Failed to connect to " << info.ip << ":" << info.port << std::endl;
+		close(sock);
+		return;
+	}
+
+	std::cout << "[OK] Connected to " << info.ip << ":" << info.port << std::endl;
+
+	// Send file count as 4 bytes
+	uint32_t file_count = static_cast<uint32_t>(ctx.file_buffers.size());
+	uint32_t fc_net = htonl(file_count);
+	send(sock, &fc_net, 4, 0);
+
+	for (size_t i = 0; i < ctx.file_buffers.size(); i++){
+		// Send extension length (4 bytes) + extension string
+		std::string ext = (i < ctx.file_extensions.size()) ? ctx.file_extensions[i] : ".bin";
+		uint32_t ext_len = htonl(static_cast<uint32_t>(ext.size()));
+		send(sock, &ext_len, 4, 0);
+		send(sock, ext.data(), ext.size(), 0);
+
+		// Send file size (4 bytes) + file data
+		auto& buf = ctx.file_buffers[i];
+		uint32_t file_size = htonl(static_cast<uint32_t>(buf.size()));
+		send(sock, &file_size, 4, 0);
+		send(sock, buf.data(), buf.size(), 0);
+		std::cout << "[OK] Sent file " << (i + 1) << " (" << buf.size() << " bytes, " << ext << ")" << std::endl;
+	}
+
+	close(sock);
+	std::cout << "[OK] Forwarding complete" << std::endl;
 }
 
 void TCPService::run_state_machine(){
@@ -217,12 +267,37 @@ void TCPService::start(){
 
 	std::cout << "[OK] Boundary: " << ctx.wbkit_bound << std::endl;
 
+	// Extract selected device from the first multipart part (name="device")
+	auto device_key = ctx.bytes_stash.find("name=\"device\"");
+	if (device_key != std::string::npos){
+		auto val_start = ctx.bytes_stash.find(CTRL_CHARACTERS, device_key);
+		if (val_start != std::string::npos){
+			val_start += 4;
+			auto val_end = ctx.bytes_stash.find(ctx.wbkit_bound, val_start);
+			if (val_end != std::string::npos){
+				selected_device = ctx.bytes_stash.substr(val_start, val_end - val_start);
+				// trim trailing \r\n before boundary
+				while (!selected_device.empty() &&
+				       (selected_device.back() == '\r' || selected_device.back() == '\n'))
+					selected_device.pop_back();
+				std::cout << "[OK] Selected device: " << selected_device << std::endl;
+
+				// Skip past the device part so the state machine only sees file parts
+				ctx.bytes_stash.erase(0, val_end + ctx.wbkit_bound.size());
+			}
+		}
+	}
+
 	run_state_machine();
 
 	if (ctx.state == ParsingState::DONE){
 		auto res = write_response();
 		send_to_client(res);
 		std::cout << "[OK] Upload complete - " << ctx.file_count << " files" << std::endl;
+
+		if (!selected_device.empty()){
+			forward_to_device(selected_device);
+		}
 	}
 
 	close(client_fd);
@@ -234,14 +309,17 @@ void TCPService::stop(){
 }
 
 int main(){
-	SharedState shared;	
+	SharedState shared;
 	TCPService tcp(shared);
 	MDNSService mdns(shared);
-	
+	ReceiverService receiver(shared);
+
 	std::thread mdns_thread(&MDNSService::start, &mdns);
+	std::thread recv_thread(&ReceiverService::start, &receiver);
 	tcp.start();
-	
+
 	mdns_thread.join();
-	
+	recv_thread.join();
+
 	return 0;
 }
