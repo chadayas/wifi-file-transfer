@@ -17,7 +17,7 @@ std::string save_to_dir(){
 	if (!env) return "./";
 	
 	return std::string(env) + "/Downloads/wifi_transfer/";
-
+}
 
 std::string find_boundary(const std::string &buf){
 	std::string wbkit = WEBKIT_BOUNDARY_STRING;
@@ -50,8 +50,8 @@ TCPService::~TCPService(){
 std::string TCPService::build_dropdown(){
 	std::lock_guard<std::mutex> lock(shared.mtx);	
 	std::string html = "<select>";
-	for (const auto& [ip, name] : shared.devices){
-		html += "<option value=\"" + ip + "\">" + name + "</option>";
+	for (const auto& [name, info ] : shared.devices){
+		html += "<option value=\"" + name + "\">" + info.ip+ "</option>";
 	}
 	html += "</select>";	
 	return html; 

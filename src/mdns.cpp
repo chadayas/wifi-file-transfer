@@ -21,8 +21,7 @@ std::string decode_name(const std::vector<unsigned char>& pkt, size_t& pos) {
 	return name;
 }
 
-void parse_response(std::vector<unsigned char>& pkt, int bytes,
-                    std::map<std::string,std::string>& devices) {
+void parse_response(std::vector<unsigned char>& pkt, int bytes, SharedState &s){
 	if (bytes < 12) return;
 
 	uint16_t ancount = (pkt[6] << 8) | pkt[7];
@@ -46,17 +45,18 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes,
 			                std::to_string(pkt[pos+1]) + "." +
 			                std::to_string(pkt[pos+2]) + "." +
 			                std::to_string(pkt[pos+3]);
-			devices[ip] = name;
-			std::cout << "Found A: " << name << " -> " << ip << std::endl;
+			s.devices[name].ip= ip;
+			//std::cout << "Found A: " << name << " -> " << ip << std::endl;
 		} else if (type == 0x0C) { // PTR record
 			size_t rdata_pos = rdata_start;
 			std::string instance = decode_name(pkt, rdata_pos);
-			std::cout << "Found PTR: " << name << " -> " << instance << std::endl;
+			//std::cout << "Found PTR: " << name << " -> " << instance << std::endl;
 		}
 	
 		else if (type == 0x21){
 			uint16_t port = (pkt[rdata_start + 4] << 8) | pkt[rdata_start + 5];
-			std::cout << "Found PORT" << name << " ->" << port << std::endl;	
+			s.devices[name].port = port; 
+			//std::cout << "Found PORT " << name << " ->" << port << std::endl;	
 		}
 		pos = rdata_start + rdlen;
 	}
@@ -149,13 +149,18 @@ namespace { // helper funcs
 		pkt.push_back(0x00);pkt.push_back(0x00); // NSCOUNT                     
 		pkt.push_back(0x00);pkt.push_back(0x00); // ARCOUNT                     
 		
-		encode_name(pkt, LOCAL_NAME + SERVICE); // name
-		auto ptr_rec = make_ptr_record();	
-		auto a_rec = make_a_record();	
-		auto srv_rec = make_srv_record();	
-		pkt.insert(pkt.end(),ptr_rec.begin(), ptr_rec.end());
-		pkt.insert(pkt.end(),a_rec.begin(), a_rec.end());
-		pkt.insert(pkt.end(),srv_rec.begin(), srv_rec.end());
+		auto ptr_rec = make_ptr_record();
+		auto a_rec = make_a_record();
+		auto srv_rec = make_srv_record();
+
+		encode_name(pkt, SERVICE);
+		pkt.insert(pkt.end(), ptr_rec.begin(), ptr_rec.end());
+
+		encode_name(pkt, LOCAL_NAME + SERVICE);
+		pkt.insert(pkt.end(), a_rec.begin(), a_rec.end());
+
+		encode_name(pkt, LOCAL_NAME + SERVICE);
+		pkt.insert(pkt.end(), srv_rec.begin(), srv_rec.end());
 		
 		return pkt;
 	}                                
@@ -237,18 +242,20 @@ void MDNSService::start(){
 	
 	socklen_t size = sizeof(mdns_addr);	
 	socklen_t *size_ptr = &size;	
-	
-	while(running){	
+	int ITERS = 120;	
+	int i = 0;	
+	while(i != ITERS){	
 	int bytes = recvfrom(socket_fd, buffer.data(), buffer.size(),
 			0, (struct sockaddr*)&mdns_addr, size_ptr);
 		if (bytes > 0){
 			std::lock_guard<std::mutex> lock(shared.mtx);
-			parse_response(buffer, bytes, shared.devices);
+			parse_response(buffer, bytes, shared);
 		} else if(bytes == -1){
 			std::cout << "." << std::flush;
 			send_announcement();	
 			send_query();
 		}	
+		++i;	
 	}
 
 }
@@ -272,15 +279,18 @@ void MDNSService::send_query(){
 		(struct sockaddr*)&mdns_addr,sizeof(mdns_addr));
 }
 
-auto MDNSService::get_devices(SharedState &s){
-	std::lock_guard<std::mutex> lock(shared.mtx);
-	shared.devices = devices;
-
+/*auto MDNSService::get_devices(SharedState &s){
+std::lock_guard<std::mutex> lock(shared.mtx);
 }
 
-/*int main(){
+int main(){
 	SharedState shared;	
 	MDNSService mdns(shared);
 	mdns.start();
-
-}*/
+	std::cout << "\n";
+	for (const auto& [name, info] : shared.devices){
+		std::cout << name << " -> " << "ip: " << info.ip
+			<< " Port: "<< info.port << std::endl;
+	}	
+}
+*/

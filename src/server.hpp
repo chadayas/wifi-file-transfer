@@ -41,6 +41,8 @@ struct ParsingContext {
 	std::ofstream current_file;
 };
 
+
+
 std::string find_boundary(const std::string &buffer);
 std::string get_file_extensions(const std::string &buffer);
 std::string save_to_dir();

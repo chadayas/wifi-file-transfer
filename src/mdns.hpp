@@ -41,7 +41,6 @@ class MDNSService{
 	private:	
 		bool running;
 		int socket_fd;
-		std::map<std::string, std::string> devices;	
 	private:
 		void send_query();
 		void send_announcement();
