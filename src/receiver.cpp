@@ -61,6 +61,7 @@ void ReceiverService::start(){
 		std::cout << "[RECV OK] Expecting " << file_count << " files" << std::endl;
 
 		std::string dir = save_dir();
+		std::filesystem::create_directories(dir);
 
 		for (uint32_t i = 0; i < file_count; i++){
 			// Read extension length
