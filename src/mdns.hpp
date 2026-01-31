@@ -12,6 +12,7 @@
 #include<unistd.h>
 #include<thread>
 #include<mutex>
+#include<ifaddrs.h>
 
 #define MDNS_IP "224.0.0.251"
 #define MDNS_PORT 5353
@@ -25,8 +26,8 @@ typedef std::vector<unsigned char> vec_uc;
 
 std::string decode_name(const vec_uc& pkt, size_t& pos);
 void parse_response(std::vector<unsigned char>& pkt, int bytes,
-		std::map<std::string,std::string>& devices);
-
+		std::map<std::string,ServiceInfo>& devices);
+std::string get_ip();
 void encode_name(vec_uc& p, const std::string &name);
 
 

@@ -21,6 +21,30 @@ std::string decode_name(const std::vector<unsigned char>& pkt, size_t& pos) {
 	return name;
 }
 
+std::string get_ip(){
+	ifaddrs* addrs;
+	getifaddrs(&addrs);	
+
+	std::string result;
+	for(ifaddrs* a = addrs; a != nullptr; a = a->ifa_next){
+		if(!a->ifa_addr) continue;
+		if(a->ifa_addr->sa_family != AF_INET) continue;
+		
+		auto *sin = (sockaddr_in*)a->ifa_addr;
+		char buf[INET_ADDRSTRLEN];
+		inet_ntop(AF_INET, &sin->sin_addr, buf, sizeof(buf));                     
+                                                                                    
+          	std::string ip(buf);                                                      
+          	if (ip != "127.0.0.1") {                                                  
+              		result = ip;                                                          
+              		break;                                                                
+         	 }                                                                         
+	}                 	                                                            
+      freeifaddrs(addrs);                                                           
+      return result;     
+}
+
+
 void parse_response(std::vector<unsigned char>& pkt, int bytes, SharedState &s){
 	if (bytes < 12) return;
 
@@ -50,6 +74,7 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes, SharedState &s){
 		} else if (type == 0x0C) { // PTR record
 			size_t rdata_pos = rdata_start;
 			std::string instance = decode_name(pkt, rdata_pos);
+			s.devices[instance];
 			//std::cout << "Found PTR: " << name << " -> " << instance << std::endl;
 		}
 	
@@ -91,10 +116,14 @@ namespace { // helper funcs
 		a_pkt.push_back(0x00);a_pkt.push_back(0x00); // TTL
 		a_pkt.push_back(0x00);a_pkt.push_back(0x64); // TTL
 		a_pkt.push_back(0x00);a_pkt.push_back(0x04); // RDlength (4 bytes for IP)
-
-		a_pkt.push_back(0xc0);a_pkt.push_back(0xa8); // ip 192.168.
-		a_pkt.push_back(0x01);a_pkt.push_back(0xaa); // 1.170
-
+		
+		in_addr myip;	
+		auto ip = get_ip();
+		inet_pton(AF_INET, ip.c_str(), &myip);	
+		auto* bytes = (unsigned char*)&myip;
+		
+		a_pkt.push_back(bytes[0]);a_pkt.push_back(bytes[1]); // ip
+		a_pkt.push_back(bytes[2]);a_pkt.push_back(bytes[3]); 
 		return a_pkt;
 	}
 
@@ -242,7 +271,7 @@ void MDNSService::start(){
 	
 	socklen_t size = sizeof(mdns_addr);	
 	socklen_t *size_ptr = &size;	
-	int ITERS = 120;	
+	int ITERS = 20;	
 	int i = 0;	
 	while(i != ITERS){	
 	int bytes = recvfrom(socket_fd, buffer.data(), buffer.size(),
@@ -282,7 +311,7 @@ void MDNSService::send_query(){
 /*auto MDNSService::get_devices(SharedState &s){
 std::lock_guard<std::mutex> lock(shared.mtx);
 }
-
+*/
 int main(){
 	SharedState shared;	
 	MDNSService mdns(shared);
@@ -291,6 +320,7 @@ int main(){
 	for (const auto& [name, info] : shared.devices){
 		std::cout << name << " -> " << "ip: " << info.ip
 			<< " Port: "<< info.port << std::endl;
-	}	
+	}
+		
 }
-*/
+//*/
