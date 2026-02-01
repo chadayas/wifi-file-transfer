@@ -307,14 +307,3 @@ void MDNSService::send_query(){
 		(struct sockaddr*)&mdns_addr,sizeof(mdns_addr));
 }
 
-/*int main(){
-	SharedState shared;
-	MDNSService mdns(shared);
-	mdns.start();
-	std::cout << "\n";
-	for (const auto& [name, info] : shared.devices){
-		std::cout << name << " -> " << "ip: " << info.ip
-			<< " Port: "<< info.port << " host: " << info.target_host << std::endl;
-	}
-
-}*/
