@@ -1,6 +1,9 @@
 #include "server.hpp"
 #include "mdns.hpp"
 #include "receiver.hpp"
+#include <fstream>
+#include <sstream>
+#include <random>
 
 namespace {
 	sockaddr_in make_server(){
@@ -9,6 +12,44 @@ namespace {
 		a.sin_port = htons(TCP_PORT);
 		a.sin_addr.s_addr = INADDR_ANY;
 		return a;
+	}
+
+	void parse_arp_table(SharedState& shared){
+		std::ifstream arp_file("/proc/net/arp");
+		if (!arp_file.is_open()) return;
+
+		std::string line;
+		std::getline(arp_file, line); // skip header
+
+		while (std::getline(arp_file, line)){
+			std::istringstream iss(line);
+			std::string ip, hw_type, flags, mac, mask, device;
+			if (!(iss >> ip >> hw_type >> flags >> mac >> mask >> device))
+				continue;
+			// Skip incomplete entries
+			if (flags == "0x0") continue;
+
+			std::string key = "arp_" + ip;
+			if (shared.devices.find(key) == shared.devices.end()){
+				ServiceInfo info;
+				info.ip = ip;
+				info.target_host = ip;
+				info.port = RECV_PORT;
+				info.source = DiscoverySource::ARP;
+				shared.devices[key] = info;
+			}
+		}
+	}
+
+	std::string generate_boundary(){
+		static const char chars[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+		std::random_device rd;
+		std::mt19937 gen(rd());
+		std::uniform_int_distribution<> dis(0, sizeof(chars) - 2);
+		std::string boundary = "----WifiTransferBoundary";
+		for (int i = 0; i < 16; i++)
+			boundary += chars[dis(gen)];
+		return boundary;
 	}
 }
 
@@ -49,13 +90,18 @@ TCPService::~TCPService(){
 	stop();
 }
 std::string TCPService::build_dropdown(){
-	std::lock_guard<std::mutex> lock(shared.mtx);	
+	std::lock_guard<std::mutex> lock(shared.mtx);
+	parse_arp_table(shared);
+
 	std::string html = "<select name=\"device\">";
-	for (const auto& [name, info ] : shared.devices){
-		html += "<option value=\"" + name + "\">" + info.target_host + "</option>";
+	for (const auto& [name, info] : shared.devices){
+		std::string label = info.target_host.empty() ? info.ip : info.target_host;
+		if (info.source == DiscoverySource::ARP)
+			label += " (ARP)";
+		html += "<option value=\"" + name + "\">" + label + "</option>";
 	}
-	html += "</select>";	
-	return html; 
+	html += "</select>";
+	return html;
 }
 
 std::string TCPService::write_post(){
@@ -166,28 +212,52 @@ void TCPService::forward_to_device(const std::string& device_name){
 
 	std::cout << "[OK] Connected to " << info.ip << ":" << info.port << std::endl;
 
-	// Send file count as 4 bytes
-	uint32_t file_count = static_cast<uint32_t>(ctx.file_buffers.size());
-	uint32_t fc_net = htonl(file_count);
-	send(sock, &fc_net, 4, 0);
+	// Build HTTP multipart POST body
+	std::string boundary = generate_boundary();
+	std::string body;
 
 	for (size_t i = 0; i < ctx.file_buffers.size(); i++){
-		// Send extension length (4 bytes) + extension string
 		std::string ext = (i < ctx.file_extensions.size()) ? ctx.file_extensions[i] : ".bin";
-		uint32_t ext_len = htonl(static_cast<uint32_t>(ext.size()));
-		send(sock, &ext_len, 4, 0);
-		send(sock, ext.data(), ext.size(), 0);
+		std::string filename = "file_" + std::to_string(i + 1) + ext;
 
-		// Send file size (4 bytes) + file data
-		auto& buf = ctx.file_buffers[i];
-		uint32_t file_size = htonl(static_cast<uint32_t>(buf.size()));
-		send(sock, &file_size, 4, 0);
-		send(sock, buf.data(), buf.size(), 0);
-		std::cout << "[OK] Sent file " << (i + 1) << " (" << buf.size() << " bytes, " << ext << ")" << std::endl;
+		body += "--" + boundary + "\r\n";
+		body += "Content-Disposition: form-data; name=\"file[]\"; filename=\"" + filename + "\"\r\n";
+		body += "Content-Type: application/octet-stream\r\n";
+		body += "\r\n";
+		body.append(ctx.file_buffers[i].data(), ctx.file_buffers[i].size());
+		body += "\r\n";
+	}
+	body += "--" + boundary + "--\r\n";
+
+	// Build HTTP request
+	std::string request;
+	request += "POST /upload HTTP/1.1\r\n";
+	request += "Host: " + info.ip + ":" + std::to_string(info.port) + "\r\n";
+	request += "Content-Type: multipart/form-data; boundary=" + boundary + "\r\n";
+	request += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+	request += "Connection: close\r\n";
+	request += "\r\n";
+	request += body;
+
+	// Send the full request
+	size_t total_sent = 0;
+	while (total_sent < request.size()){
+		ssize_t n = send(sock, request.data() + total_sent, request.size() - total_sent, 0);
+		if (n <= 0){
+			std::cout << "[ERROR] Send failed during forwarding" << std::endl;
+			close(sock);
+			return;
+		}
+		total_sent += n;
 	}
 
+	// Read response
+	std::string response(1024, '\0');
+	recv(sock, &response[0], response.size(), 0);
+	std::cout << "[OK] Receiver response: " << response.substr(0, response.find("\r\n")) << std::endl;
+
 	close(sock);
-	std::cout << "[OK] Forwarding complete" << std::endl;
+	std::cout << "[OK] Forwarding complete (" << ctx.file_buffers.size() << " files via HTTP POST)" << std::endl;
 }
 
 void TCPService::run_state_machine(){

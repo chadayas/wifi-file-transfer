@@ -5,10 +5,15 @@
 #include<map>
 #include<string>
 
+#define RECV_PORT 9090
+
+enum class DiscoverySource { MDNS, ARP };
+
 struct ServiceInfo {
 	std::string ip;
-	std::string target_host;	
-	uint16_t port;
+	std::string target_host;
+	uint16_t port = RECV_PORT;
+	DiscoverySource source = DiscoverySource::MDNS;
 };
 
 struct SharedState {

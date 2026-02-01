@@ -38,7 +38,6 @@ class MDNSService{
 			
 		void start();
 		void stop();
-		auto get_devices(SharedState &s);	
 	private:	
 		bool running;
 		int socket_fd;

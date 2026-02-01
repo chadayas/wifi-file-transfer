@@ -1,4 +1,5 @@
 #include "receiver.hpp"
+#include "server.hpp"
 
 ReceiverService::~ReceiverService(){
 	stop();
@@ -19,6 +20,148 @@ bool ReceiverService::recv_exact(int fd, void* buf, size_t len){
 		total += n;
 	}
 	return true;
+}
+
+std::string ReceiverService::recv_all(int fd){
+	std::string data;
+	char buf[8192];
+
+	// First, read until we have the full headers
+	while (true){
+		ssize_t n = recv(fd, buf, sizeof(buf), 0);
+		if (n <= 0) break;
+		data.append(buf, n);
+		if (data.find("\r\n\r\n") != std::string::npos) break;
+	}
+
+	// Parse Content-Length from headers
+	size_t cl_pos = data.find("Content-Length: ");
+	if (cl_pos == std::string::npos) return data;
+
+	size_t cl_end = data.find("\r\n", cl_pos);
+	size_t content_length = std::stoul(data.substr(cl_pos + 16, cl_end - cl_pos - 16));
+
+	size_t header_end = data.find("\r\n\r\n") + 4;
+	size_t body_so_far = data.size() - header_end;
+
+	// Read remaining body
+	while (body_so_far < content_length){
+		ssize_t n = recv(fd, buf, sizeof(buf), 0);
+		if (n <= 0) break;
+		data.append(buf, n);
+		body_so_far += n;
+	}
+
+	return data;
+}
+
+void ReceiverService::handle_client(int peer_fd){
+	std::string data = recv_all(peer_fd);
+	if (data.empty()){
+		close(peer_fd);
+		return;
+	}
+
+	// Check it's a POST to /upload
+	if (data.find("POST /upload") == std::string::npos){
+		std::string resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+		send(peer_fd, resp.data(), resp.size(), 0);
+		close(peer_fd);
+		return;
+	}
+
+	// Find the boundary from Content-Type header
+	std::string boundary = find_boundary(data);
+	if (boundary.empty()){
+		// Try standard boundary format: boundary=XXXX
+		size_t bpos = data.find("boundary=");
+		if (bpos != std::string::npos){
+			size_t bstart = bpos + 9;
+			size_t bend = data.find("\r\n", bstart);
+			boundary = "--" + data.substr(bstart, bend - bstart);
+		}
+	}
+
+	if (boundary.empty()){
+		std::cout << "[RECV ERROR] No boundary found" << std::endl;
+		std::string resp = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+		send(peer_fd, resp.data(), resp.size(), 0);
+		close(peer_fd);
+		return;
+	}
+
+	std::cout << "[RECV OK] Boundary: " << boundary << std::endl;
+
+	// Find body start (after \r\n\r\n)
+	size_t body_start = data.find("\r\n\r\n");
+	if (body_start == std::string::npos){
+		close(peer_fd);
+		return;
+	}
+	body_start += 4;
+
+	std::string body = data.substr(body_start);
+	std::string dir = save_dir();
+	std::filesystem::create_directories(dir);
+
+	int file_count = 0;
+	size_t pos = 0;
+
+	while (true){
+		// Find next boundary
+		size_t part_start = body.find(boundary, pos);
+		if (part_start == std::string::npos) break;
+		part_start += boundary.size();
+
+		// Check for final boundary --
+		if (body.substr(part_start, 2) == "--") break;
+
+		// Skip past \r\n after boundary
+		part_start += 2;
+
+		// Find the end of part headers
+		size_t header_end = body.find("\r\n\r\n", part_start);
+		if (header_end == std::string::npos) break;
+
+		std::string part_header = body.substr(part_start, header_end - part_start);
+		header_end += 4; // skip \r\n\r\n
+
+		// Extract filename extension
+		std::string ext = get_file_extensions(part_header);
+		if (ext.empty()) ext = ".bin";
+
+		// Find the next boundary to determine data end
+		size_t data_end = body.find(boundary, header_end);
+		if (data_end == std::string::npos) break;
+
+		// data_end - 2 to exclude the \r\n before boundary
+		size_t file_data_end = data_end - 2;
+		size_t file_size = file_data_end - header_end;
+
+		// Save file
+		file_count++;
+		std::string filename = dir + "received_" + std::to_string(file_count) + ext;
+		std::ofstream out(filename, std::ios::binary);
+		out.write(body.data() + header_end, file_size);
+		out.close();
+
+		std::cout << "[RECV OK] Saved " << filename
+			<< " (" << file_size << " bytes)" << std::endl;
+
+		pos = data_end;
+	}
+
+	std::cout << "[RECV OK] Received " << file_count << " files via HTTP POST" << std::endl;
+
+	std::string resp_body = "{\"status\":\"ok\",\"files\":" + std::to_string(file_count) + "}";
+	std::string resp = "HTTP/1.1 200 OK\r\n";
+	resp += "Content-Type: application/json\r\n";
+	resp += "Content-Length: " + std::to_string(resp_body.size()) + "\r\n";
+	resp += "\r\n";
+	resp += resp_body;
+	send(peer_fd, resp.data(), resp.size(), 0);
+
+	close(peer_fd);
 }
 
 void ReceiverService::start(){
@@ -42,7 +185,7 @@ void ReceiverService::start(){
 	}
 
 	listen(socket_fd, 5);
-	std::cout << "[RECV OK] Listening for file transfers on port " << RECV_PORT << std::endl;
+	std::cout << "[RECV OK] HTTP receiver listening on port " << RECV_PORT << std::endl;
 
 	running = true;
 	while (running){
@@ -50,49 +193,7 @@ void ReceiverService::start(){
 		if (peer_fd < 0) continue;
 
 		std::cout << "[RECV OK] Peer connected" << std::endl;
-
-		// Read file count
-		uint32_t fc_net;
-		if (!recv_exact(peer_fd, &fc_net, 4)){
-			close(peer_fd);
-			continue;
-		}
-		uint32_t file_count = ntohl(fc_net);
-		std::cout << "[RECV OK] Expecting " << file_count << " files" << std::endl;
-
-		std::string dir = save_dir();
-		std::filesystem::create_directories(dir);
-
-		for (uint32_t i = 0; i < file_count; i++){
-			// Read extension length
-			uint32_t ext_len_net;
-			if (!recv_exact(peer_fd, &ext_len_net, 4)) break;
-			uint32_t ext_len = ntohl(ext_len_net);
-
-			// Read extension
-			std::string ext(ext_len, '\0');
-			if (!recv_exact(peer_fd, &ext[0], ext_len)) break;
-
-			// Read file size
-			uint32_t fsize_net;
-			if (!recv_exact(peer_fd, &fsize_net, 4)) break;
-			uint32_t fsize = ntohl(fsize_net);
-
-			// Read file data
-			std::vector<char> data(fsize);
-			if (!recv_exact(peer_fd, data.data(), fsize)) break;
-
-			// Write to disk
-			std::string filename = dir + "received_" + std::to_string(i + 1) + ext;
-			std::ofstream out(filename, std::ios::binary);
-			out.write(data.data(), data.size());
-			out.close();
-
-			std::cout << "[RECV OK] Saved " << filename
-				<< " (" << fsize << " bytes)" << std::endl;
-		}
-
-		close(peer_fd);
+		handle_client(peer_fd);
 	}
 }
 
