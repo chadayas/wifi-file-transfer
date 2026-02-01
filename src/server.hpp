@@ -68,6 +68,7 @@ private:
 	void parse_header();
 	void parse_file_data();
 	void forward_to_device(const std::string& device_name);
+	void serve_receiver_script();
 
 private:
 	bool running;

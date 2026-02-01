@@ -51,6 +51,81 @@ namespace {
 			boundary += chars[dis(gen)];
 		return boundary;
 	}
+
+	const char* RECEIVER_SCRIPT = R"PY(#!/usr/bin/env python3
+import http.server
+import os
+import re
+
+PORT = 9090
+SAVE_DIR = os.path.expanduser("~/Downloads/wifi_transfer")
+
+class UploadHandler(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        if self.path != "/upload":
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        content_length = int(self.headers.get("Content-Length", 0))
+        content_type = self.headers.get("Content-Type", "")
+
+        boundary = None
+        for part in content_type.split(";"):
+            part = part.strip()
+            if part.startswith("boundary="):
+                boundary = part[9:]
+                break
+
+        if not boundary:
+            self.send_response(400)
+            self.end_headers()
+            return
+
+        body = self.rfile.read(content_length)
+
+        os.makedirs(SAVE_DIR, exist_ok=True)
+
+        delimiter = ("--" + boundary).encode()
+        parts = body.split(delimiter)
+        count = 0
+
+        for part in parts:
+            if part in (b"", b"--\r\n", b"\r\n"):
+                continue
+
+            header_end = part.find(b"\r\n\r\n")
+            if header_end == -1:
+                continue
+
+            headers = part[:header_end].decode(errors="replace")
+            data = part[header_end + 4:]
+
+            if data.endswith(b"\r\n"):
+                data = data[:-2]
+
+            match = re.search(r'filename="([^"]+)"', headers)
+            if not match:
+                continue
+
+            filename = os.path.basename(match.group(1))
+            count += 1
+            path = os.path.join(SAVE_DIR, filename)
+            with open(path, "wb") as f:
+                f.write(data)
+            print(f"Saved: {path} ({len(data)} bytes)")
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        resp = f'{{"status":"ok","files":{count}}}'
+        self.send_header("Content-Length", str(len(resp)))
+        self.end_headers()
+        self.wfile.write(resp.encode())
+
+print(f"Receiver listening on port {PORT}")
+print(f"Files will be saved to {SAVE_DIR}")
+http.server.HTTPServer(("0.0.0.0", PORT), UploadHandler).serve_forever()
+)PY";
 }
 
 std::string save_to_dir(){
@@ -111,11 +186,15 @@ std::string TCPService::write_post(){
 	std::string body = "<html>"
 		"<h1>Welcome to the Wifi File Transfer!</h1><body>"
 		"<form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">"
-		"<label>Pick a destination</label>" + dropdown + "<br><br>"	
+		"<label>Pick a destination</label>" + dropdown + "<br><br>"
 		"<input type=\"file\" id=\"file\" name=\"file[]\" "
 		"accept=\"image/*\" multiple>"
 		"<button type=\"submit\">Submit Upload(s)</button>"
-		"</form></body></html>";
+		"</form><br><hr><br>"
+		"<p>To receive files on another device, download and run this script:</p>"
+		"<a href=\"/receiver\">Download receiver.py</a>"
+		"<pre>python3 receiver.py</pre>"
+		"</body></html>";
 	response += "Content-Type: text/html\r\n";
 	response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
 	response += "\r\n";
@@ -293,6 +372,18 @@ void TCPService::run_state_machine(){
 	}
 }
 
+void TCPService::serve_receiver_script(){
+	std::string script(RECEIVER_SCRIPT);
+	std::string response;
+	response += HTTP_OK;
+	response += "Content-Type: text/x-python\r\n";
+	response += "Content-Disposition: attachment; filename=\"receiver.py\"\r\n";
+	response += "Content-Length: " + std::to_string(script.size()) + "\r\n";
+	response += "\r\n";
+	response += script;
+	send_to_client(response);
+}
+
 void TCPService::start(){
 	socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (socket_fd < 0){
@@ -300,6 +391,9 @@ void TCPService::start(){
 		return;
 	}
 	std::cout << "[OK] Socket created" << std::endl;
+
+	int reuse = 1;
+	setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
 	auto tcp_addr = make_server();
 	int bind_result = bind(socket_fd, (struct sockaddr*)&tcp_addr, sizeof(tcp_addr));
@@ -314,63 +408,68 @@ void TCPService::start(){
 
 	running = true;
 
-	client_fd = accept(socket_fd, nullptr, nullptr);
-	if (client_fd < 0){
-		std::cout << "[ERROR] Accept failed" << std::endl;
-		return;
-	}
-	std::cout << "[OK] Client connected" << std::endl;
+	while (running){
+		client_fd = accept(socket_fd, nullptr, nullptr);
+		if (client_fd < 0) continue;
 
-	int bytes = recv(client_fd, &buffer[0], buffer.size(), 0);
-	if (bytes <= 0) return;
-	if (buffer.find("GET") != std::string::npos){
-		std::cout << "[OK] Received GET request" << std::endl;
-		auto post = write_post();
-		send_to_client(post);
-	}
+		std::cout << "[OK] Client connected" << std::endl;
 
-	bytes = recv(client_fd, &buffer[0], buffer.size(), 0);
-	if (bytes <= 0) return;
+		int bytes = recv(client_fd, &buffer[0], buffer.size(), 0);
+		std::cout << "[DEBUG] recv returned: " << bytes << std::endl;
+		if (bytes <= 0){
+			std::cout << "[DEBUG] No data received, closing" << std::endl;
+			close(client_fd);
+			continue;
+		}
 
-	ctx.bytes_stash.append(buffer, 0, bytes);
-	ctx.wbkit_bound = find_boundary(ctx.bytes_stash);
+		std::string request(buffer, 0, bytes);
+		std::cout << "[DEBUG] First line: " << request.substr(0, request.find("\r\n")) << std::endl;
 
-	std::cout << "[OK] Boundary: " << ctx.wbkit_bound << std::endl;
+		if (request.find("GET /receiver") != std::string::npos){
+			std::cout << "[OK] Serving receiver.py download" << std::endl;
+			serve_receiver_script();
+		} else if (request.find("GET") != std::string::npos){
+			std::cout << "[OK] Serving form page" << std::endl;
+			send_to_client(write_post());
+		} else if (request.find("POST /upload") != std::string::npos){
+			std::cout << "[OK] Handling file upload" << std::endl;
+			ctx = ParsingContext{};
+			ctx.bytes_stash.append(request);
+			ctx.wbkit_bound = find_boundary(ctx.bytes_stash);
 
-	// Extract selected device from the first multipart part (name="device")
-	auto device_key = ctx.bytes_stash.find("name=\"device\"");
-	if (device_key != std::string::npos){
-		auto val_start = ctx.bytes_stash.find(CTRL_CHARACTERS, device_key);
-		if (val_start != std::string::npos){
-			val_start += 4;
-			auto val_end = ctx.bytes_stash.find(ctx.wbkit_bound, val_start);
-			if (val_end != std::string::npos){
-				selected_device = ctx.bytes_stash.substr(val_start, val_end - val_start);
-				// trim trailing \r\n before boundary
-				while (!selected_device.empty() &&
-				       (selected_device.back() == '\r' || selected_device.back() == '\n'))
-					selected_device.pop_back();
-				std::cout << "[OK] Selected device: " << selected_device << std::endl;
+			std::cout << "[OK] Boundary: " << ctx.wbkit_bound << std::endl;
 
-				// Skip past the device part so the state machine only sees file parts
-				ctx.bytes_stash.erase(0, val_end + ctx.wbkit_bound.size());
+			auto device_key = ctx.bytes_stash.find("name=\"device\"");
+			if (device_key != std::string::npos){
+				auto val_start = ctx.bytes_stash.find(CTRL_CHARACTERS, device_key);
+				if (val_start != std::string::npos){
+					val_start += 4;
+					auto val_end = ctx.bytes_stash.find(ctx.wbkit_bound, val_start);
+					if (val_end != std::string::npos){
+						selected_device = ctx.bytes_stash.substr(val_start, val_end - val_start);
+						while (!selected_device.empty() &&
+						       (selected_device.back() == '\r' || selected_device.back() == '\n'))
+							selected_device.pop_back();
+						std::cout << "[OK] Selected device: " << selected_device << std::endl;
+						ctx.bytes_stash.erase(0, val_end + ctx.wbkit_bound.size());
+					}
+				}
+			}
+
+			run_state_machine();
+
+			if (ctx.state == ParsingState::DONE){
+				send_to_client(write_response());
+				std::cout << "[OK] Upload complete - " << ctx.file_count << " files" << std::endl;
+
+				if (!selected_device.empty()){
+					forward_to_device(selected_device);
+				}
 			}
 		}
+
+		close(client_fd);
 	}
-
-	run_state_machine();
-
-	if (ctx.state == ParsingState::DONE){
-		auto res = write_response();
-		send_to_client(res);
-		std::cout << "[OK] Upload complete - " << ctx.file_count << " files" << std::endl;
-
-		if (!selected_device.empty()){
-			forward_to_device(selected_device);
-		}
-	}
-
-	close(client_fd);
 }
 
 void TCPService::stop(){
