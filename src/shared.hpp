@@ -7,6 +7,7 @@
 
 struct ServiceInfo {
 	std::string ip;
+	std::string target_host;	
 	uint16_t port;
 };
 

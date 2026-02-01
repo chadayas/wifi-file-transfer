@@ -52,7 +52,7 @@ std::string TCPService::build_dropdown(){
 	std::lock_guard<std::mutex> lock(shared.mtx);	
 	std::string html = "<select name=\"device\">";
 	for (const auto& [name, info ] : shared.devices){
-		html += "<option value=\"" + name + "\">" + info.ip+ "</option>";
+		html += "<option value=\"" + name + "\">" + info.target_host + "</option>";
 	}
 	html += "</select>";	
 	return html; 

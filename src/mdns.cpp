@@ -80,8 +80,10 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes, SharedState &s){
 	
 		else if (type == 0x21){
 			uint16_t port = (pkt[rdata_start + 4] << 8) | pkt[rdata_start + 5];
-			s.devices[name].port = port; 
-			//std::cout << "Found PORT " << name << " ->" << port << std::endl;	
+			size_t host_pos = rdata_start + 6;
+			std::string target = decode_name(pkt, host_pos);
+			s.devices[name].port = port;
+			s.devices[name].target_host = target;
 		}
 		pos = rdata_start + rdlen;
 	}
@@ -271,7 +273,9 @@ void MDNSService::start(){
 	
 	socklen_t size = sizeof(mdns_addr);	
 	socklen_t *size_ptr = &size;	
-	while(running){	
+	int i = 0;
+	int TEST = 25;
+	while(i != TEST){	
 	int bytes = recvfrom(socket_fd, buffer.data(), buffer.size(),
 			0, (struct sockaddr*)&mdns_addr, size_ptr);
 		if (bytes > 0){
@@ -282,7 +286,7 @@ void MDNSService::start(){
 			send_announcement();	
 			send_query();
 		}	
-		
+		i++;	
 	}
 
 }
@@ -310,14 +314,14 @@ void MDNSService::send_query(){
 std::lock_guard<std::mutex> lock(shared.mtx);
 }
 */
-/*int main(){
+int main(){
 	SharedState shared;
 	MDNSService mdns(shared);
 	mdns.start();
 	std::cout << "\n";
 	for (const auto& [name, info] : shared.devices){
 		std::cout << name << " -> " << "ip: " << info.ip
-			<< " Port: "<< info.port << std::endl;
+			<< " Port: "<< info.port << " host: " << info.target_host << std::endl;
 	}
 
-}*/
+}
