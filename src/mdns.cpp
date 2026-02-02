@@ -70,12 +70,10 @@ void parse_response(std::vector<unsigned char>& pkt, int bytes, SharedState &s){
 			                std::to_string(pkt[pos+2]) + "." +
 			                std::to_string(pkt[pos+3]);
 			s.devices[name].ip= ip;
-			//std::cout << "Found A: " << name << " -> " << ip << std::endl;
 		} else if (type == 0x0C) { // PTR record
 			size_t rdata_pos = rdata_start;
 			std::string instance = decode_name(pkt, rdata_pos);
 			s.devices[instance];
-			//std::cout << "Found PTR: " << name << " -> " << instance << std::endl;
 		}
 	
 		else if (type == 0x21){

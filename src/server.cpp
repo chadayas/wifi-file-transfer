@@ -137,6 +137,18 @@ std::string save_to_dir(){
 }
 
 std::string find_boundary(const std::string &buf){
+	// First try: parse from Content-Type header (boundary=XXXX)
+	auto bpos = buf.find("boundary=");
+	if (bpos != std::string::npos){
+		bpos += 9; // skip "boundary="
+		std::string boundary = "--";
+		for (size_t i = bpos; i < buf.size() && buf[i] != '\r' && buf[i] != '\n'; ++i){
+			boundary.push_back(buf[i]);
+		}
+		return boundary;
+	}
+
+	// Fallback: search for WebKit boundary in body
 	std::string wbkit = WEBKIT_BOUNDARY_STRING;
 	auto idx = buf.find(wbkit);
 	if (idx == std::string::npos) return "";
@@ -223,7 +235,8 @@ void TCPService::send_to_client(const std::string &r){
 void TCPService::parse_header(){
 	auto idx = ctx.bytes_stash.find(CONTENT_TYPE_STRING);
 	auto pos = ctx.bytes_stash.find(CTRL_CHARACTERS, idx);
-
+	
+	std::cout << ctx.bytes_stash << std::endl;
 	ctx.file_extensions.push_back(get_file_extensions(ctx.bytes_stash));
 	ctx.bytes_stash.erase(0, pos + 4);
 	ctx.file_count++;
@@ -239,7 +252,7 @@ void TCPService::parse_header(){
 void TCPService::parse_file_data(){
 	auto pos = ctx.bytes_stash.find(ctx.wbkit_bound);
 	auto& buf = ctx.file_buffers.back();
-
+	std::cout << "BOUNDARY: " << ctx.wbkit_bound << std::endl;
 	if (pos != std::string::npos){
 		std::cout << "[State::FILE_DATA] We are on file " << ctx.file_count << "\n";
 
