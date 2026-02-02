@@ -235,8 +235,7 @@ void TCPService::send_to_client(const std::string &r){
 void TCPService::parse_header(){
 	auto idx = ctx.bytes_stash.find(CONTENT_TYPE_STRING);
 	auto pos = ctx.bytes_stash.find(CTRL_CHARACTERS, idx);
-	
-	std::cout << ctx.bytes_stash << std::endl;
+	std::cout << ctx.bytes_stash << std::endl;	
 	ctx.file_extensions.push_back(get_file_extensions(ctx.bytes_stash));
 	ctx.bytes_stash.erase(0, pos + 4);
 	ctx.file_count++;
@@ -252,7 +251,6 @@ void TCPService::parse_header(){
 void TCPService::parse_file_data(){
 	auto pos = ctx.bytes_stash.find(ctx.wbkit_bound);
 	auto& buf = ctx.file_buffers.back();
-	std::cout << "BOUNDARY: " << ctx.wbkit_bound << std::endl;
 	if (pos != std::string::npos){
 		std::cout << "[State::FILE_DATA] We are on file " << ctx.file_count << "\n";
 
@@ -427,15 +425,12 @@ void TCPService::start(){
 		std::cout << "[OK] Client connected" << std::endl;
 
 		int bytes = recv(client_fd, &buffer[0], buffer.size(), 0);
-		std::cout << "[DEBUG] recv returned: " << bytes << std::endl;
 		if (bytes <= 0){
-			std::cout << "[DEBUG] No data received, closing" << std::endl;
 			close(client_fd);
 			continue;
 		}
 
 		std::string request(buffer, 0, bytes);
-		std::cout << "[DEBUG] First line: " << request.substr(0, request.find("\r\n")) << std::endl;
 
 		if (request.find("GET /receiver") != std::string::npos){
 			std::cout << "[OK] Serving receiver.py download" << std::endl;
@@ -445,12 +440,26 @@ void TCPService::start(){
 			send_to_client(write_post());
 		} else if (request.find("POST /upload") != std::string::npos){
 			std::cout << "[OK] Handling file upload" << std::endl;
+
+			// Tell Chrome to send the body now
+			if (request.find("Expect: 100-continue") != std::string::npos ||
+			    request.find("Expect: 100-Continue") != std::string::npos){
+				std::string cont = "HTTP/1.1 100 Continue\r\n\r\n";
+				send(client_fd, cont.data(), cont.size(), 0);
+			}
+
 			ctx = ParsingContext{};
 			ctx.bytes_stash.append(request);
 			ctx.wbkit_bound = find_boundary(ctx.bytes_stash);
 
-			std::cout << "[OK] Boundary: " << ctx.wbkit_bound << std::endl;
+			// Keep reading until we have the device field
+			while (ctx.bytes_stash.find("name=\"device\"") == std::string::npos){
+				int more = recv(client_fd, &buffer[0], buffer.size(), 0);
+				if (more <= 0) break;
+				ctx.bytes_stash.append(buffer, 0, more);
+			}
 
+			std::cout << "[OK] Boundary: " << ctx.wbkit_bound << std::endl;
 			auto device_key = ctx.bytes_stash.find("name=\"device\"");
 			if (device_key != std::string::npos){
 				auto val_start = ctx.bytes_stash.find(CTRL_CHARACTERS, device_key);

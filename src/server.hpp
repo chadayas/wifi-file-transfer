@@ -19,7 +19,7 @@
 #include<arpa/inet.h>
 
 #define TCP_PORT 8080
-#define CONTENT_TYPE_STRING "Content-Type: image/"
+#define CONTENT_TYPE_STRING "Content-Type: "
 #define CONTENT_LENGTH_STRING "Content-Length: "
 #define WEBKIT_BOUNDARY_STRING "------WebKitFormBoundary"
 #define HTTP_OK "HTTP/1.1 200 OK\r\n"
