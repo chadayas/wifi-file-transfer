@@ -52,6 +52,16 @@ namespace {
 		return boundary;
 	}
 
+	std::string read_file(const std::string& path){
+		std::ifstream file(path);
+		if (!file.is_open()) return "";
+		std::ostringstream ss;
+		ss << file.rdbuf();
+		return ss.str();
+	}
+
+	const std::string FRONTEND_DIR = "frontend/";
+
 	const char* RECEIVER_SCRIPT = R"PY(#!/usr/bin/env python3
 import http.server
 import os
@@ -192,20 +202,17 @@ std::string TCPService::build_dropdown(){
 }
 
 std::string TCPService::write_post(){
+	std::string dropdown = build_dropdown();
+	std::string body = read_file(FRONTEND_DIR + "index.html");
+
+	// Replace template placeholder with actual dropdown
+	std::string placeholder = "{{DROPDOWN}}";
+	auto pos = body.find(placeholder);
+	if (pos != std::string::npos)
+		body.replace(pos, placeholder.size(), dropdown);
+
 	std::string response;
 	response += HTTP_OK;
-	std::string dropdown = build_dropdown();	
-	std::string body = "<html>"
-		"<h1>Welcome to the Wifi File Transfer!</h1><body>"
-		"<form action=\"/upload\" method=\"POST\" enctype=\"multipart/form-data\">"
-		"<label>Pick a destination</label>" + dropdown + "<br><br>"
-		"<input type=\"file\" id=\"file\" name=\"file[]\" multiple>"
-		"<button type=\"submit\">Submit Upload(s)</button>"
-		"</form><br><hr><br>"
-		"<p>To receive files on another device, download and run this script:</p>"
-		"<a href=\"/receiver\">Download receiver.py</a>"
-		"<pre>python3 receiver.py</pre>"
-		"</body></html>";
 	response += "Content-Type: text/html\r\n";
 	response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
 	response += "\r\n";
@@ -214,11 +221,15 @@ std::string TCPService::write_post(){
 }
 
 std::string TCPService::write_response(){
+	std::string body = read_file(FRONTEND_DIR + "success.html");
+
+	std::string placeholder = "{{FILE_COUNT}}";
+	auto pos = body.find(placeholder);
+	if (pos != std::string::npos)
+		body.replace(pos, placeholder.size(), std::to_string(ctx.file_count));
+
 	std::string response;
 	response += HTTP_OK;
-	std::string body = "<html>"
-		"<h1>Successfully uploaded " + std::to_string(ctx.file_count) +
-		" files!</h1></html>";
 	response += "Content-Type: text/html\r\n";
 	response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
 	response += "\r\n";
@@ -435,6 +446,15 @@ void TCPService::start(){
 		if (request.find("GET /receiver") != std::string::npos){
 			std::cout << "[OK] Serving receiver.py download" << std::endl;
 			serve_receiver_script();
+		} else if (request.find("GET /styles.css") != std::string::npos){
+			std::string css = read_file(FRONTEND_DIR + "styles.css");
+			std::string response;
+			response += HTTP_OK;
+			response += "Content-Type: text/css\r\n";
+			response += "Content-Length: " + std::to_string(css.size()) + "\r\n";
+			response += "\r\n";
+			response += css;
+			send_to_client(response);
 		} else if (request.find("GET") != std::string::npos){
 			std::cout << "[OK] Serving form page" << std::endl;
 			send_to_client(write_post());

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>WiFi Transfer</title>
+	<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+	<div class="container">
+		<h1>WiFi Transfer</h1>
+		<p class="subtitle">Send files to devices on your network</p>
+
+		<form action="/upload" method="POST" enctype="multipart/form-data">
+			<div class="field">
+				<label for="device">Destination</label>
+				{{DROPDOWN}}
+			</div>
+
+			<div class="field">
+				<label for="file">Files</label>
+				<input type="file" id="file" name="file[]" multiple>
+			</div>
+
+			<button type="submit">Send</button>
+		</form>
+
+		<div class="divider"></div>
+
+		<div class="receiver-section">
+			<p>To receive files on another device:</p>
+			<a href="/receiver" class="download-link">Download receiver.py</a>
+			<code>python3 receiver.py</code>
+		</div>
+	</div>
+</body>
+</html>
