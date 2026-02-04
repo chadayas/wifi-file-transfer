@@ -147,7 +147,6 @@ std::string save_to_dir(){
 }
 
 std::string find_boundary(const std::string &buf){
-	// First try: parse from Content-Type header (boundary=XXXX)
 	auto bpos = buf.find("boundary=");
 	if (bpos != std::string::npos){
 		bpos += 9; // skip "boundary="
@@ -158,7 +157,6 @@ std::string find_boundary(const std::string &buf){
 		return boundary;
 	}
 
-	// Fallback: search for WebKit boundary in body
 	std::string wbkit = WEBKIT_BOUNDARY_STRING;
 	auto idx = buf.find(wbkit);
 	if (idx == std::string::npos) return "";
@@ -246,7 +244,7 @@ void TCPService::send_to_client(const std::string &r){
 void TCPService::parse_header(){
 	auto idx = ctx.bytes_stash.find(CONTENT_TYPE_STRING);
 	auto pos = ctx.bytes_stash.find(CTRL_CHARACTERS, idx);
-	std::cout << ctx.bytes_stash << std::endl;	
+	
 	ctx.file_extensions.push_back(get_file_extensions(ctx.bytes_stash));
 	ctx.bytes_stash.erase(0, pos + 4);
 	ctx.file_count++;
@@ -287,6 +285,7 @@ void TCPService::parse_file_data(){
 void TCPService::forward_to_device(const std::string& device_name){
 	std::lock_guard<std::mutex> lock(shared.mtx);
 	auto it = shared.devices.find(device_name);
+	std::string term_string = "\r\n";
 	if (it == shared.devices.end()){
 		std::cout << "[ERROR] Device not found: " << device_name << std::endl;
 		return;
@@ -312,44 +311,54 @@ void TCPService::forward_to_device(const std::string& device_name){
 
 	std::cout << "[OK] Connected to " << info.ip << ":" << info.port << std::endl;
 
-	// Build HTTP multipart POST body
 	std::string boundary = generate_boundary();
-	std::string body;
 
+	// Pre-compute content length
+	size_t content_length = 0;
 	for (size_t i = 0; i < ctx.file_buffers.size(); i++){
 		std::string ext = (i < ctx.file_extensions.size()) ? ctx.file_extensions[i] : ".bin";
 		std::string filename = "file_" + std::to_string(i + 1) + ext;
 
-		body += "--" + boundary + "\r\n";
-		body += "Content-Disposition: form-data; name=\"file[]\"; filename=\"" + filename + "\"\r\n";
-		body += "Content-Type: application/octet-stream\r\n";
-		body += "\r\n";
-		body.append(ctx.file_buffers[i].data(), ctx.file_buffers[i].size());
-		body += "\r\n";
+		content_length += 2 + boundary.size() + 2; // --boundary\r\n
+		content_length += 57 + filename.size() + 1 + 2; // Content-Disposition line + closing " + \r\n
+		content_length += 38 + 2; // Content-Type: application/octet-stream\r\n + \r\n
+		content_length += ctx.file_buffers[i].size();
+		content_length += 2; // \r\n
 	}
-	body += "--" + boundary + "--\r\n";
+	content_length += 2 + boundary.size() + 4; // --boundary--\r\n
 
-	// Build HTTP request
+	// Send HTTP headers
 	std::string request;
 	request += "POST /upload HTTP/1.1\r\n";
 	request += "Host: " + info.ip + ":" + std::to_string(info.port) + "\r\n";
 	request += "Content-Type: multipart/form-data; boundary=" + boundary + "\r\n";
-	request += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+	request += "Content-Length: " + std::to_string(content_length) + "\r\n";
 	request += "Connection: close\r\n";
 	request += "\r\n";
-	request += body;
 
-	// Send the full request
-	size_t total_sent = 0;
-	while (total_sent < request.size()){
-		ssize_t n = send(sock, request.data() + total_sent, request.size() - total_sent, 0);
-		if (n <= 0){
-			std::cout << "[ERROR] Send failed during forwarding" << std::endl;
-			close(sock);
-			return;
-		}
-		total_sent += n;
+	ssize_t n = send(sock, request.data(), request.size(), 0);
+	if (n <= 0){
+		std::cout << "[ERROR] Send failed during forwarding" << std::endl;
+		close(sock);
+		return;
 	}
+
+	// Send each file part: header then data directly from buffer
+	for (size_t i = 0; i < ctx.file_buffers.size(); i++){
+		std::string ext = (i < ctx.file_extensions.size()) ? ctx.file_extensions[i] : ".bin";
+		std::string filename = "file_" + std::to_string(i + 1) + ext;
+
+		std::string part_header;
+		part_header += "--" + boundary + "\r\n";
+		part_header += "Content-Disposition: form-data; name=\"file[]\"; filename=\"" + filename + "\"\r\n";
+		part_header += "Content-Type: application/octet-stream\r\n";
+		part_header += "\r\n";
+		send(sock, part_header.data(), part_header.size(), 0);
+		send(sock, ctx.file_buffers[i].data(), ctx.file_buffers[i].size(), 0);
+		send(sock, "\r\n", 2, 0);
+	}
+	std::string final_bound = "--" + boundary + "--\r\n";
+	send(sock, final_bound.data(), final_bound.size(), 0);	
 
 	// Read response
 	std::string response(1024, '\0');
@@ -357,7 +366,8 @@ void TCPService::forward_to_device(const std::string& device_name){
 	std::cout << "[OK] Receiver response: " << response.substr(0, response.find("\r\n")) << std::endl;
 
 	close(sock);
-	std::cout << "[OK] Forwarding complete (" << ctx.file_buffers.size() << " files via HTTP POST)" << std::endl;
+	std::cout << "[OK] Forwarding complete (" << ctx.file_buffers.size() << " files via HTTP POST)" 
+		<< std::endl;
 }
 
 void TCPService::run_state_machine(){
@@ -487,11 +497,14 @@ void TCPService::start(){
 					val_start += 4;
 					auto val_end = ctx.bytes_stash.find(ctx.wbkit_bound, val_start);
 					if (val_end != std::string::npos){
-						selected_device = ctx.bytes_stash.substr(val_start, val_end - val_start);
+						selected_device = ctx.bytes_stash.substr(val_start, val_end - 
+						val_start);
 						while (!selected_device.empty() &&
-						       (selected_device.back() == '\r' || selected_device.back() == '\n'))
+						       (selected_device.back() == '\r' || selected_device.back() 
+							== '\n'))
 							selected_device.pop_back();
-						std::cout << "[OK] Selected device: " << selected_device << std::endl;
+						std::cout << "[OK] Selected device: " << selected_device 
+						<< std::endl;
 						ctx.bytes_stash.erase(0, val_end + ctx.wbkit_bound.size());
 					}
 				}
