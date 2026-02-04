@@ -50,8 +50,8 @@ std::string save_to_dir();
 
 class TCPService {
 public:
-	TCPService(SharedState &s) : shared(s), running(false), 
-	socket_fd(-1), client_fd(-1), buffer(8196, '\0') {}
+	TCPService(SharedState &s) : shared(s), running(false),
+	socket_fd(-1) {}
 	
 	~TCPService();
 
@@ -59,25 +59,21 @@ public:
 	void stop();
 
 private:
-	void send_to_client(const std::string &response);
+	void send_to_client(const std::string &response, int client_fd);
 	std::string write_post();
-	std::string write_response();
+	std::string write_response(ParsingContext &ctx);
 	std::string build_dropdown();
 
-	void run_state_machine();
-	void parse_header();
-	void parse_file_data();
-	void forward_to_device(const std::string& device_name);
-	void serve_receiver_script();
+	void run_state_machine(int client_fd, std::string &buffer, ParsingContext &ctx);
+	void parse_header(ParsingContext &ctx);
+	void parse_file_data(ParsingContext &ctx);
+	void forward_to_device(const std::string& device_name, ParsingContext &ctx);
+	void serve_receiver_script(int client_fd);
 
 private:
 	bool running;
 	int socket_fd;
-	int client_fd;
-	ParsingContext ctx;
 	SharedState& shared;
-	std::string buffer;
-	std::string selected_device;
 };
 
 

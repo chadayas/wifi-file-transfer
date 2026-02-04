@@ -5,6 +5,8 @@
 #include <sstream>
 #include <random>
 
+
+
 namespace {
 	sockaddr_in make_server(){
 		sockaddr_in a{};
@@ -187,6 +189,9 @@ TCPService::~TCPService(){
 std::string TCPService::build_dropdown(){
 	std::lock_guard<std::mutex> lock(shared.mtx);
 	parse_arp_table(shared);
+	
+	// TODO 
+	// We should not keep the ARP ips in the dropdown if can change to device name that would be cool
 
 	std::string html = "<select name=\"device\">";
 	for (const auto& [name, info] : shared.devices){
@@ -218,7 +223,7 @@ std::string TCPService::write_post(){
 	return response;
 }
 
-std::string TCPService::write_response(){
+std::string TCPService::write_response(ParsingContext &ctx){
 	std::string body = read_file(FRONTEND_DIR + "success.html");
 
 	std::string placeholder = "{{FILE_COUNT}}";
@@ -237,11 +242,11 @@ std::string TCPService::write_response(){
 
 
 
-void TCPService::send_to_client(const std::string &r){
+void TCPService::send_to_client(const std::string &r, int client_fd){
 	send(client_fd, r.data(), r.size(), 0);
 }
 
-void TCPService::parse_header(){
+void TCPService::parse_header(ParsingContext &ctx){
 	auto idx = ctx.bytes_stash.find(CONTENT_TYPE_STRING);
 	auto pos = ctx.bytes_stash.find(CTRL_CHARACTERS, idx);
 	
@@ -257,7 +262,7 @@ void TCPService::parse_header(){
 	ctx.state = ParsingState::FILE_DATA;
 }
 
-void TCPService::parse_file_data(){
+void TCPService::parse_file_data(ParsingContext &ctx){
 	auto pos = ctx.bytes_stash.find(ctx.wbkit_bound);
 	auto& buf = ctx.file_buffers.back();
 	if (pos != std::string::npos){
@@ -282,7 +287,7 @@ void TCPService::parse_file_data(){
 	}
 }
 
-void TCPService::forward_to_device(const std::string& device_name){
+void TCPService::forward_to_device(const std::string& device_name, ParsingContext &ctx){
 	std::lock_guard<std::mutex> lock(shared.mtx);
 	auto it = shared.devices.find(device_name);
 	std::string term_string = "\r\n";
@@ -370,7 +375,7 @@ void TCPService::forward_to_device(const std::string& device_name){
 		<< std::endl;
 }
 
-void TCPService::run_state_machine(){
+void TCPService::run_state_machine(int client_fd, std::string &buffer, ParsingContext &ctx){
 	while (ctx.state != ParsingState::DONE){
 		int bytes_amt = recv(client_fd, &buffer[0], buffer.size(), 0);
 		if (bytes_amt <= 0) break;
@@ -382,14 +387,14 @@ void TCPService::run_state_machine(){
 			switch (ctx.state){
 				case ParsingState::MULTIPART_HEADER:
 					if (ctx.bytes_stash.find(CTRL_CHARACTERS) != std::string::npos){
-						parse_header();
+						parse_header(ctx);
 					} else {
 						run = false;
 					}
 					break;
 
 				case ParsingState::FILE_DATA:
-					parse_file_data();
+					parse_file_data(ctx);
 					if (ctx.state == ParsingState::FILE_DATA){
 						run = false;
 					}
@@ -403,7 +408,7 @@ void TCPService::run_state_machine(){
 	}
 }
 
-void TCPService::serve_receiver_script(){
+void TCPService::serve_receiver_script(int client_fd){
 	std::string script(RECEIVER_SCRIPT);
 	std::string response;
 	response += HTTP_OK;
@@ -412,7 +417,7 @@ void TCPService::serve_receiver_script(){
 	response += "Content-Length: " + std::to_string(script.size()) + "\r\n";
 	response += "\r\n";
 	response += script;
-	send_to_client(response);
+	send_to_client(response, client_fd);
 }
 
 void TCPService::start(){
@@ -440,22 +445,28 @@ void TCPService::start(){
 	running = true;
 
 	while (running){
-		client_fd = accept(socket_fd, nullptr, nullptr);
-		if (client_fd < 0) continue;
 
+	int client_fd = accept(socket_fd, nullptr, nullptr);
+	if (client_fd < 0) continue;
+
+	std::thread([this, client_fd](){
 		std::cout << "[OK] Client connected" << std::endl;
 
+		ParsingContext ctx{};
+		std::string selected_device;
+		std::string buffer(8196, '\0');
+		
 		int bytes = recv(client_fd, &buffer[0], buffer.size(), 0);
 		if (bytes <= 0){
 			close(client_fd);
-			continue;
+			return;
 		}
 
 		std::string request(buffer, 0, bytes);
 
 		if (request.find("GET /receiver") != std::string::npos){
 			std::cout << "[OK] Serving receiver.py download" << std::endl;
-			serve_receiver_script();
+			serve_receiver_script(client_fd);
 		} else if (request.find("GET /styles.css") != std::string::npos){
 			std::string css = read_file(FRONTEND_DIR + "styles.css");
 			std::string response;
@@ -464,10 +475,10 @@ void TCPService::start(){
 			response += "Content-Length: " + std::to_string(css.size()) + "\r\n";
 			response += "\r\n";
 			response += css;
-			send_to_client(response);
+			send_to_client(response, client_fd);
 		} else if (request.find("GET") != std::string::npos){
 			std::cout << "[OK] Serving form page" << std::endl;
-			send_to_client(write_post());
+			send_to_client(write_post(), client_fd);
 		} else if (request.find("POST /upload") != std::string::npos){
 			std::cout << "[OK] Handling file upload" << std::endl;
 
@@ -478,7 +489,6 @@ void TCPService::start(){
 				send(client_fd, cont.data(), cont.size(), 0);
 			}
 
-			ctx = ParsingContext{};
 			ctx.bytes_stash.append(request);
 			ctx.wbkit_bound = find_boundary(ctx.bytes_stash);
 
@@ -510,22 +520,22 @@ void TCPService::start(){
 				}
 			}
 
-			run_state_machine();
+			run_state_machine(client_fd, buffer, ctx);
 
 			if (ctx.state == ParsingState::DONE){
-				send_to_client(write_response());
+				send_to_client(write_response(ctx), client_fd);
 				std::cout << "[OK] Upload complete - " << ctx.file_count << " files" << std::endl;
 
 				if (!selected_device.empty()){
-					forward_to_device(selected_device);
+					forward_to_device(selected_device, ctx);
 				}
 			}
 		}
 
 		close(client_fd);
-	}
+	}).detach();
+	} // while (running)
 }
-
 void TCPService::stop(){
 	running = false;
 	if (socket_fd >= 0) close(socket_fd);
