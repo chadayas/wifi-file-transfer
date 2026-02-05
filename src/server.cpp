@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <random>
+#include <netdb.h>
 
 
 
@@ -14,6 +15,99 @@ namespace {
 		a.sin_port = htons(TCP_PORT);
 		a.sin_addr.s_addr = INADDR_ANY;
 		return a;
+	}
+
+	std::string mac_vendor_lookup(const std::string& mac){
+		// Common vendors - uppercase, colon-separated format expected
+		std::string oui = mac.substr(0, 8);
+
+		for (auto& c : oui) c = std::toupper(c);
+
+		if (oui == "00:50:56" || oui == "00:0C:29" || oui == "00:15:5D") return "VMware";
+		if (oui == "08:00:27") return "VirtualBox";
+		if (oui.substr(0,2) == "00" || oui.substr(0,2) == "02") {
+			// Check Microsoft OUIs
+			if (oui == "00:15:5D" || oui == "00:1D:D8" || oui == "00:12:5A" ||
+			    oui == "00:03:FF" || oui == "00:0D:3A" || oui == "28:18:78" ||
+			    oui == "60:45:BD" || oui == "7C:1E:52" || oui == "98:5F:D3" ||
+			    oui == "C8:3F:26" || oui == "DC:B4:C4") return "Microsoft";
+		}
+		// Apple
+		if (oui == "00:03:93" || oui == "00:0A:95" || oui == "00:0D:93" ||
+		    oui == "00:1C:B3" || oui == "00:1E:C2" || oui == "00:25:BC" ||
+		    oui == "3C:15:C2" || oui == "3C:E0:72" || oui == "40:6C:8F" ||
+		    oui == "44:2A:60" || oui == "60:F8:1D" || oui == "68:DB:CA" ||
+		    oui == "70:DE:E2" || oui == "78:31:C1" || oui == "78:CA:39" ||
+		    oui == "7C:D1:C3" || oui == "8C:85:90" || oui == "9C:20:7B" ||
+		    oui == "A4:5E:60" || oui == "AC:BC:32" || oui == "B8:E8:56" ||
+		    oui == "C8:69:CD" || oui == "D0:03:4B" || oui == "F0:18:98" ||
+		    oui == "F8:1E:DF") return "Apple";
+		// Samsung
+		if (oui == "00:15:99" || oui == "00:1A:8A" || oui == "00:21:19" ||
+		    oui == "00:23:39" || oui == "00:26:37" || oui == "08:D4:2B" ||
+		    oui == "10:D5:42" || oui == "14:49:E0" || oui == "24:4B:81" ||
+		    oui == "30:96:FB" || oui == "34:23:BA" || oui == "4C:BC:A5" ||
+		    oui == "50:01:BB" || oui == "5C:F6:DC" || oui == "78:52:1A" ||
+		    oui == "84:11:9E" || oui == "90:18:7C" || oui == "94:35:0A" ||
+		    oui == "A8:06:00" || oui == "BC:D1:1F" || oui == "C4:73:1E" ||
+		    oui == "D0:22:BE" || oui == "E4:7C:F9" || oui == "F0:25:B7" ||
+		    oui == "F4:7B:5E") return "Samsung";
+		// Google
+		if (oui == "00:1A:11" || oui == "3C:5A:B4" || oui == "54:60:09" ||
+		    oui == "94:EB:2C" || oui == "F4:F5:D8" || oui == "F4:F5:E8") return "Google";
+		// Intel
+		if (oui == "00:1B:21" || oui == "00:1C:C0" || oui == "00:1E:64" ||
+		    oui == "00:1F:3B" || oui == "00:22:FA" || oui == "3C:A9:F4" ||
+		    oui == "4C:79:6E" || oui == "5C:87:9C" || oui == "68:05:CA" ||
+		    oui == "84:3A:4B" || oui == "8C:EC:4B" || oui == "A4:4C:C8" ||
+		    oui == "B4:6B:FC" || oui == "E8:B1:FC") return "Intel";
+		// Amazon
+		if (oui == "00:FC:8B" || oui == "0C:47:C9" || oui == "18:74:2E" ||
+		    oui == "40:B4:CD" || oui == "44:65:0D" || oui == "68:37:E9" ||
+		    oui == "74:C2:46" || oui == "84:D6:D0" || oui == "A0:02:DC" ||
+		    oui == "AC:63:BE" || oui == "B4:7C:9C" || oui == "F0:F0:A4" ||
+		    oui == "FC:65:DE") return "Amazon";
+		// Raspberry Pi
+		if (oui == "B8:27:EB" || oui == "DC:A6:32" || oui == "E4:5F:01") return "Raspberry Pi";
+		// Dell
+		if (oui == "00:14:22" || oui == "00:1A:A0" || oui == "00:1E:4F" ||
+		    oui == "18:03:73" || oui == "24:B6:FD" || oui == "34:17:EB" ||
+		    oui == "44:A8:42" || oui == "5C:26:0A" || oui == "74:86:7A" ||
+		    oui == "98:90:96" || oui == "B0:83:FE" || oui == "D4:BE:D9" ||
+		    oui == "F8:B1:56") return "Dell";
+		// HP
+		if (oui == "00:1B:78" || oui == "00:1E:0B" || oui == "00:21:5A" ||
+		    oui == "00:25:B3" || oui == "10:1F:74" || oui == "2C:41:38" ||
+		    oui == "3C:D9:2B" || oui == "68:B5:99" || oui == "80:C1:6E" ||
+		    oui == "94:57:A5" || oui == "B4:B5:2F" || oui == "D8:D3:85") return "HP";
+		// Lenovo
+		if (oui == "00:1E:4C" || oui == "00:21:5E" || oui == "00:22:68" ||
+		    oui == "28:D2:44" || oui == "40:1C:83" || oui == "50:7B:9D" ||
+		    oui == "6C:C2:17" || oui == "70:72:0D" || oui == "98:FA:9B" ||
+		    oui == "C8:5B:76" || oui == "E8:E0:B7" || oui == "F0:03:8C") return "Lenovo";
+
+		return "";
+	}
+
+	std::string reverse_lookup(const std::string& ip, const std::string& mac){
+		sockaddr_in sa{};
+		sa.sin_family = AF_INET;
+		inet_pton(AF_INET, ip.c_str(), &sa.sin_addr);
+
+		char host[NI_MAXHOST];
+		int result = getnameinfo((sockaddr*)&sa, sizeof(sa), host, sizeof(host),
+		                         nullptr, 0, NI_NAMEREQD);
+		if (result == 0){
+			return std::string(host);
+		}
+
+		// Try MAC vendor lookup as fallback
+		std::string vendor = mac_vendor_lookup(mac);
+		if (!vendor.empty()){
+			return vendor + " (" + ip + ")";
+		}
+
+		return ip;
 	}
 
 	void parse_arp_table(SharedState& shared){
@@ -35,7 +129,7 @@ namespace {
 			if (shared.devices.find(key) == shared.devices.end()){
 				ServiceInfo info;
 				info.ip = ip;
-				info.target_host = ip;
+				info.target_host = reverse_lookup(ip, mac);
 				info.port = RECV_PORT;
 				info.source = DiscoverySource::ARP;
 				shared.devices[key] = info;
