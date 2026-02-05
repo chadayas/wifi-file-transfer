@@ -6,7 +6,7 @@ Upload files through a browser, pick a device on your network, and the server fo
 
 ## Demo
 
-<!-- Add your demo video/gif here -->
+![WiFi Transfer Demo](frontend/demo.gif)
 
 ## How It Works
 
