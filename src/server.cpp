@@ -542,6 +542,8 @@ void TCPService::stop(){
 }
 
 int main(){
+	std::cout << "\n  http://" << get_ip() << ":" << TCP_PORT << "\n" << std::endl;
+
 	SharedState shared;
 	TCPService tcp(shared);
 	MDNSService mdns(shared);
