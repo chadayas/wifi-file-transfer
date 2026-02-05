@@ -101,7 +101,6 @@ namespace {
 			return std::string(host);
 		}
 
-		// Try MAC vendor lookup as fallback
 		std::string vendor = mac_vendor_lookup(mac);
 		if (!vendor.empty()){
 			return vendor + " (" + ip + ")";
@@ -284,9 +283,6 @@ std::string TCPService::build_dropdown(){
 	std::lock_guard<std::mutex> lock(shared.mtx);
 	parse_arp_table(shared);
 	
-	// TODO 
-	// We should not keep the ARP ips in the dropdown if can change to device name that would be cool
-
 	std::string html = "<select name=\"device\">";
 	for (const auto& [name, info] : shared.devices){
 		std::string label = info.target_host.empty() ? info.ip : info.target_host;
@@ -302,7 +298,6 @@ std::string TCPService::write_post(){
 	std::string dropdown = build_dropdown();
 	std::string body = read_file(FRONTEND_DIR + "index.html");
 
-	// Replace template placeholder with actual dropdown
 	std::string placeholder = "{{DROPDOWN}}";
 	auto pos = body.find(placeholder);
 	if (pos != std::string::npos)
@@ -412,7 +407,6 @@ void TCPService::forward_to_device(const std::string& device_name, ParsingContex
 
 	std::string boundary = generate_boundary();
 
-	// Pre-compute content length
 	size_t content_length = 0;
 	for (size_t i = 0; i < ctx.file_buffers.size(); i++){
 		std::string ext = (i < ctx.file_extensions.size()) ? ctx.file_extensions[i] : ".bin";
@@ -442,7 +436,7 @@ void TCPService::forward_to_device(const std::string& device_name, ParsingContex
 		return;
 	}
 
-	// Send each file part: header then data directly from buffer
+	// send each file part: header then data directly from buffer
 	for (size_t i = 0; i < ctx.file_buffers.size(); i++){
 		std::string ext = (i < ctx.file_extensions.size()) ? ctx.file_extensions[i] : ".bin";
 		std::string filename = "file_" + std::to_string(i + 1) + ext;
@@ -459,7 +453,7 @@ void TCPService::forward_to_device(const std::string& device_name, ParsingContex
 	std::string final_bound = "--" + boundary + "--\r\n";
 	send(sock, final_bound.data(), final_bound.size(), 0);	
 
-	// Read response
+	// read response
 	std::string response(1024, '\0');
 	recv(sock, &response[0], response.size(), 0);
 	std::cout << "[OK] Receiver response: " << response.substr(0, response.find("\r\n")) << std::endl;
@@ -628,7 +622,7 @@ void TCPService::start(){
 
 		close(client_fd);
 	}).detach();
-	} // while (running)
+	} 
 }
 void TCPService::stop(){
 	running = false;
