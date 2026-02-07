@@ -192,7 +192,7 @@ wifi_transfer/
 
 ```bash
 # Build
-make
+make server
 
 # Run (starts all three services)
 ./build/s
