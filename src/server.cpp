@@ -1,6 +1,6 @@
-#include "server.hpp"
-#include "mdns.hpp"
-#include "receiver.hpp"
+#include "inc/server.hpp"
+#include "inc/mdns.hpp"
+#include "inc/receiver.hpp"
 #include <fstream>
 #include <sstream>
 #include <random>

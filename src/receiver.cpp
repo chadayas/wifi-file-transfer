@@ -1,5 +1,5 @@
-#include "receiver.hpp"
-#include "server.hpp"
+#include "inc/receiver.hpp"
+#include "inc/server.hpp"
 
 ReceiverService::~ReceiverService(){
 	stop();
